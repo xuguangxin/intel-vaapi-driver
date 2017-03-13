@@ -97,6 +97,8 @@ LOCAL_C_INCLUDES :=             \
 
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE := i965_drv_video
+LOCAL_PROPRIETARY_MODULE := true
+LOCAL_MODULE_RELATIVE_PATH := hw
 
 LOCAL_SHARED_LIBRARIES := libdl libdrm libdrm_intel libcutils \
                libva libva-android libstdc++
