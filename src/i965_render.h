@@ -35,12 +35,10 @@
 
 #define VA_SRC_COLOR_MASK       0x000000f0
 
-#include "i965_post_processing.h"
 
 struct i965_kernel;
 
-struct i965_render_state
-{
+struct i965_render_state {
     struct {
         dri_bo *vertex_buffer;
     } vb;
@@ -48,7 +46,7 @@ struct i965_render_state
     struct {
         dri_bo *state;
     } vs;
-    
+
     struct {
         dri_bo *state;
     } sf;
@@ -76,7 +74,7 @@ struct i965_render_state
     int pp_flag; /* 0: disable, 1: enable */
 
     struct i965_kernel render_kernels[3];
-    
+
     struct {
         dri_bo *bo;
         int bo_size;
@@ -107,7 +105,7 @@ struct i965_render_state
 
     unsigned int blend_state_offset;
     int blend_state_size;
-  
+
     unsigned int sf_clip_offset;
     int sf_clip_size;
 
@@ -119,8 +117,8 @@ struct i965_render_state
                                const VARectangle *dst_rect,
                                unsigned int flags);
     void (*render_put_subpicture)(VADriverContextP ctx, struct object_surface *,
-                               const VARectangle *src_rec,
-                               const VARectangle *dst_rect);
+                                  const VARectangle *src_rec,
+                                  const VARectangle *dst_rect);
     void (*render_terminate)(VADriverContextP ctx);
 };
 

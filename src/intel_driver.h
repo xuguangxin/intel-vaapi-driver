@@ -76,12 +76,18 @@
 #define CMD_PIPE_CONTROL_IS_FLUSH               (1 << 11)
 #define CMD_PIPE_CONTROL_TC_FLUSH               (1 << 10)
 #define CMD_PIPE_CONTROL_NOTIFY_ENABLE          (1 << 8)
+#define CMD_PIPE_CONTROL_FLUSH_ENABLE           (1 << 7)
 #define CMD_PIPE_CONTROL_DC_FLUSH               (1 << 5)
 #define CMD_PIPE_CONTROL_GLOBAL_GTT             (1 << 2)
 #define CMD_PIPE_CONTROL_LOCAL_PGTT             (0 << 2)
 #define CMD_PIPE_CONTROL_STALL_AT_SCOREBOARD    (1 << 1)
 #define CMD_PIPE_CONTROL_DEPTH_CACHE_FLUSH      (1 << 0)
 
+#define CMD_PIPE_CONTROL_GLOBAL_GTT_GEN8        (1 << 24)
+#define CMD_PIPE_CONTROL_LOCAL_PGTT_GEN8        (0 << 24)
+#define CMD_PIPE_CONTROL_VFC_INVALIDATION_GEN8  (1 << 4)
+#define CMD_PIPE_CONTROL_CC_INVALIDATION_GEN8   (1 << 3)
+#define CMD_PIPE_CONTROL_SC_INVALIDATION_GEN8   (1 << 2)
 
 struct intel_batchbuffer;
 
@@ -144,8 +150,7 @@ extern uint32_t g_intel_debug_option_flags;
         }                                       \
     } while (0)
 
-struct intel_device_info
-{
+struct intel_device_info {
     int gen;
     int gt;
 
@@ -160,10 +165,10 @@ struct intel_device_info
     unsigned int is_skylake     : 1; /* gen9 */
     unsigned int is_broxton     : 1; /* gen9 */
     unsigned int is_kabylake    : 1; /* gen9p5 */
+    unsigned int is_glklake     : 1; /* gen9p5 lp*/
 };
 
-struct intel_driver_data 
-{
+struct intel_driver_data {
     int fd;
     int device_id;
     int revision;
@@ -183,7 +188,10 @@ struct intel_driver_data
     unsigned int has_bsd2   : 1; /* Flag: has the second BSD video ring unit */
     unsigned int has_huc    : 1; /* Flag: has a fully loaded HuC firmware? */
 
+    int eu_total;
+
     const struct intel_device_info *device_info;
+    unsigned int mocs_state;
 };
 
 bool intel_driver_init(VADriverContextP ctx);
@@ -195,8 +203,7 @@ intel_driver_data(VADriverContextP ctx)
     return (struct intel_driver_data *)ctx->pDriverData;
 }
 
-struct intel_region
-{
+struct intel_region {
     int x;
     int y;
     unsigned int width;
@@ -227,5 +234,7 @@ struct intel_region
 #define IS_BXT(device_info)             (device_info->is_broxton)
 
 #define IS_KBL(device_info)             (device_info->is_kabylake)
+
+#define IS_GLK(device_info)             (device_info->is_glklake)
 
 #endif /* _INTEL_DRIVER_H_ */

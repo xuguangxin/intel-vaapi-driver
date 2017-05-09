@@ -83,17 +83,17 @@ typedef enum _gen6_brc_status {
 
 #define OUT_BUFFER_X(buf_bo, is_target, ma)  do {                         \
         if (buf_bo) {                                                   \
-            OUT_BCS_RELOC(batch,                                        \
+            OUT_BCS_RELOC64(batch,                                        \
                           buf_bo,                                       \
                           I915_GEM_DOMAIN_INSTRUCTION,                       \
                           is_target ? I915_GEM_DOMAIN_INSTRUCTION : 0,       \
                           0);                                           \
         } else {                                                        \
             OUT_BCS_BATCH(batch, 0);                                    \
-        }                                                               \
-        OUT_BCS_BATCH(batch, 0);                                        \
-        if (ma)                                                         \
             OUT_BCS_BATCH(batch, 0);                                    \
+        }                                                               \
+        if (ma)                                                         \
+            OUT_BCS_BATCH(batch, i965->intel.mocs_state);                                    \
     } while (0)
 
 #define OUT_BUFFER_MA_TARGET(buf_bo)       OUT_BUFFER_X(buf_bo, 1, 1)
@@ -157,14 +157,12 @@ gen9_hcpe_pipe_mode_select(VADriverContextP ctx,
 
     assert(standard_select == HCP_CODEC_HEVC);
 
-    if(IS_KBL(i965->intel.device_info))
-    {
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
         BEGIN_BCS_BATCH(batch, 6);
 
         OUT_BCS_BATCH(batch, HCP_PIPE_MODE_SELECT | (6 - 2));
-    }
-    else
-    {
+    } else {
         BEGIN_BCS_BATCH(batch, 4);
 
         OUT_BCS_BATCH(batch, HCP_PIPE_MODE_SELECT | (4 - 2));
@@ -177,8 +175,8 @@ gen9_hcpe_pipe_mode_select(VADriverContextP ctx,
     OUT_BCS_BATCH(batch, 0);
     OUT_BCS_BATCH(batch, 0);
 
-    if(IS_KBL(i965->intel.device_info))
-    {
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
         OUT_BCS_BATCH(batch, 0);
         OUT_BCS_BATCH(batch, 0);
     }
@@ -201,9 +199,8 @@ gen9_hcpe_surface_state(VADriverContextP ctx, struct encode_state *encode_state,
 
     assert(obj_surface);
 
-    if((pSequenceParameter->seq_fields.bits.bit_depth_luma_minus8 > 0)
-        || (pSequenceParameter->seq_fields.bits.bit_depth_chroma_minus8 > 0))
-    {
+    if ((pSequenceParameter->seq_fields.bits.bit_depth_luma_minus8 > 0)
+        || (pSequenceParameter->seq_fields.bits.bit_depth_chroma_minus8 > 0)) {
         assert(obj_surface->fourcc == VA_FOURCC_P010);
         surface_format = SURFACE_FORMAT_P010;
     }
@@ -243,14 +240,12 @@ gen9_hcpe_pipe_buf_addr_state(VADriverContextP ctx, struct encode_state *encode_
     dri_bo *bo;
     unsigned int i;
 
-    if(IS_KBL(i965->intel.device_info))
-    {
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
         BEGIN_BCS_BATCH(batch, 104);
 
         OUT_BCS_BATCH(batch, HCP_PIPE_BUF_ADDR_STATE | (104 - 2));
-    }
-    else
-    {
+    } else {
         BEGIN_BCS_BATCH(batch, 95);
 
         OUT_BCS_BATCH(batch, HCP_PIPE_BUF_ADDR_STATE | (95 - 2));
@@ -305,9 +300,9 @@ gen9_hcpe_pipe_buf_addr_state(VADriverContextP ctx, struct encode_state *encode_
     OUT_BUFFER_MA_TARGET(NULL);    /* DW 89..91, ignore for HEVC */
     OUT_BUFFER_MA_TARGET(NULL);    /* DW 92..94, ignore for HEVC */
 
-    if(IS_KBL(i965->intel.device_info))
-    {
-        for(i = 0;i < 9;i++)
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
+        for (i = 0; i < 9; i++)
             OUT_BCS_BATCH(batch, 0);
     }
 
@@ -318,6 +313,7 @@ static void
 gen9_hcpe_ind_obj_base_addr_state(VADriverContextP ctx,
                                   struct intel_encoder_context *encoder_context)
 {
+    struct i965_driver_data *i965 = i965_driver_data(ctx);
     struct intel_batchbuffer *batch = encoder_context->base.batch;
     struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
 
@@ -329,17 +325,15 @@ gen9_hcpe_ind_obj_base_addr_state(VADriverContextP ctx,
     OUT_BUFFER_NMA_REFERENCE(NULL);                /* DW 4..5, Upper Bound */
     OUT_BUFFER_MA_TARGET(mfc_context->hcp_indirect_cu_object.bo);                 /* DW 6..8, CU */
     /* DW 9..11, PAK-BSE */
-    OUT_BCS_RELOC(batch,
-                  mfc_context->hcp_indirect_pak_bse_object.bo,
-                  I915_GEM_DOMAIN_INSTRUCTION, I915_GEM_DOMAIN_INSTRUCTION,
-                  mfc_context->hcp_indirect_pak_bse_object.offset);
-    OUT_BCS_BATCH(batch, 0);
-    OUT_BCS_BATCH(batch, 0);
-    OUT_BCS_RELOC(batch,
-                  mfc_context->hcp_indirect_pak_bse_object.bo,
-                  I915_GEM_DOMAIN_INSTRUCTION, I915_GEM_DOMAIN_INSTRUCTION,
-                  mfc_context->hcp_indirect_pak_bse_object.end_offset);
-    OUT_BCS_BATCH(batch, 0);
+    OUT_BCS_RELOC64(batch,
+                    mfc_context->hcp_indirect_pak_bse_object.bo,
+                    I915_GEM_DOMAIN_INSTRUCTION, I915_GEM_DOMAIN_INSTRUCTION,
+                    mfc_context->hcp_indirect_pak_bse_object.offset);
+    OUT_BCS_BATCH(batch, i965->intel.mocs_state);
+    OUT_BCS_RELOC64(batch,
+                    mfc_context->hcp_indirect_pak_bse_object.bo,
+                    I915_GEM_DOMAIN_INSTRUCTION, I915_GEM_DOMAIN_INSTRUCTION,
+                    mfc_context->hcp_indirect_pak_bse_object.end_offset);
 
     ADVANCE_BCS_BATCH(batch);
 }
@@ -524,7 +518,7 @@ gen9_hcpe_hevc_pic_state(VADriverContextP ctx, struct encode_state *encode_state
     int ctb_size = 1 << log2_ctb_size;
     double rawctubits = 8 * 3 * ctb_size * ctb_size / 2.0;
     int maxctubits = (int)(5 * rawctubits / 3) ;
-    double bitrate = seq_param->bits_per_second * 1.0;
+    double bitrate = (double)encoder_context->brc.bits_per_second[0];
     double framebitrate = bitrate / 32 / 8; //32 byte unit
     int minframebitrate = 0;//(int) (framebitrate * 3 / 10);
     int maxframebitrate = (int)(framebitrate * 10 / 10);
@@ -547,14 +541,12 @@ gen9_hcpe_hevc_pic_state(VADriverContextP ctx, struct encode_state *encode_state
     /* set zero for encoder */
     loop_filter_across_tiles_enabled_flag = 0;
 
-    if(IS_KBL(i965->intel.device_info))
-    {
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
         BEGIN_BCS_BATCH(batch, 31);
 
         OUT_BCS_BATCH(batch, HCP_PIC_STATE | (31 - 2));
-    }
-    else
-    {
+    } else {
         BEGIN_BCS_BATCH(batch, 19);
 
         OUT_BCS_BATCH(batch, HCP_PIC_STATE | (19 - 2));
@@ -575,7 +567,8 @@ gen9_hcpe_hevc_pic_state(VADriverContextP ctx, struct encode_state *encode_state
                   seq_param->log2_min_luma_coding_block_size_minus3);
     OUT_BCS_BATCH(batch, 0); /* DW 3, ignored */
     OUT_BCS_BATCH(batch,
-                  (IS_KBL(i965->intel.device_info)? 1 : 0) << 27 | /* CU packet structure is 0 for SKL */
+                  ((IS_KBL(i965->intel.device_info) || IS_GLK(i965->intel.device_info)) ?
+                   1 : 0) << 27 | /* CU packet structure is 0 for SKL */
                   seq_param->seq_fields.bits.strong_intra_smoothing_enabled_flag << 26 |
                   pic_param->pic_fields.bits.transquant_bypass_enabled_flag << 25 |
                   seq_param->seq_fields.bits.amp_enabled_flag << 23 |
@@ -629,11 +622,11 @@ gen9_hcpe_hevc_pic_state(VADriverContextP ctx, struct encode_state *encode_state
                   0 << 30 |
                   minframesize);    /* DW 18, min frame size units */
 
-    if(IS_KBL(i965->intel.device_info))
-    {
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
         int i = 0;
 
-        for(i = 0;i < 12;i++)
+        for (i = 0; i < 12; i++)
             OUT_BCS_BATCH(batch, 0);
     }
 
@@ -811,14 +804,12 @@ gen9_hcpe_hevc_slice_state(VADriverContextP ctx,
         }
     }
 
-    if(IS_KBL(i965->intel.device_info))
-    {
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
         BEGIN_BCS_BATCH(batch, 11);
 
         OUT_BCS_BATCH(batch, HCP_SLICE_STATE | (11 - 2));
-    }
-    else
-    {
+    } else {
         BEGIN_BCS_BATCH(batch, 9);
 
         OUT_BCS_BATCH(batch, HCP_SLICE_STATE | (9 - 2));
@@ -867,8 +858,8 @@ gen9_hcpe_hevc_slice_state(VADriverContextP ctx,
                   0);        /* Ignored for decoding */
     OUT_BCS_BATCH(batch, 0); /* PAK-BSE data start offset */
 
-    if(IS_KBL(i965->intel.device_info))
-    {
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
         OUT_BCS_BATCH(batch, 0);
         OUT_BCS_BATCH(batch, 0);
     }
@@ -878,8 +869,8 @@ gen9_hcpe_hevc_slice_state(VADriverContextP ctx,
 
 /* HEVC pipe line related */
 static void gen9_hcpe_hevc_pipeline_picture_programing(VADriverContextP ctx,
-        struct encode_state *encode_state,
-        struct intel_encoder_context *encoder_context)
+                                                       struct encode_state *encode_state,
+                                                       struct intel_encoder_context *encoder_context)
 {
     struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
 
@@ -924,7 +915,7 @@ static void gen9_hcpe_init(VADriverContextP ctx,
     int num_cu_record = 64;
     int size_shift = 3;
 
-    if((pSequenceParameter->seq_fields.bits.bit_depth_luma_minus8 > 0)
+    if ((pSequenceParameter->seq_fields.bits.bit_depth_luma_minus8 > 0)
         || (pSequenceParameter->seq_fields.bits.bit_depth_chroma_minus8 > 0))
         size_shift = 2;
 
@@ -1177,7 +1168,8 @@ gen9_hcpe_hevc_pak_object(VADriverContextP ctx, int lcu_x, int lcu_y, int isLast
     struct i965_driver_data *i965 = i965_driver_data(ctx);
     int len_in_dwords = 3;
 
-    if(IS_KBL(i965->intel.device_info))
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info))
         len_in_dwords = 5;
 
     if (batch == NULL)
@@ -1193,8 +1185,8 @@ gen9_hcpe_hevc_pak_object(VADriverContextP ctx, int lcu_x, int lcu_y, int isLast
 
     OUT_BCS_BATCH(batch, (lcu_y << 16) | lcu_x);        /* LCU  for Y*/
 
-    if(IS_KBL(i965->intel.device_info))
-    {
+    if (IS_KBL(i965->intel.device_info) ||
+        IS_GLK(i965->intel.device_info)) {
         OUT_BCS_BATCH(batch, 0);
         OUT_BCS_BATCH(batch, 0);
     }
@@ -1234,7 +1226,7 @@ gen9_hcpe_hevc_fill_indirect_cu_intra(VADriverContextP ctx,
                                       int qp, unsigned int *msg,
                                       int ctb_x, int ctb_y,
                                       int mb_x, int mb_y,
-                                      int ctb_width_in_mb, int width_in_ctb, int num_cu_record, int slice_type,int cu_index,int index)
+                                      int ctb_width_in_mb, int width_in_ctb, int num_cu_record, int slice_type, int cu_index, int index)
 {
     /* here cu == mb, so we use mb address as the cu address */
     /* to fill the indirect cu by the vme out */
@@ -1256,7 +1248,7 @@ gen9_hcpe_hevc_fill_indirect_cu_intra(VADriverContextP ctx,
     int cu_size = 1;
     int tu_size = 0x55;
     int tu_count = 4;
-    int chroma_mode_remap[4]={5,4,3,2};
+    int chroma_mode_remap[4] = {5, 4, 3, 2};
 
     if (!is_inter) inerpred_idc = 0xff;
 
@@ -1376,7 +1368,7 @@ gen9_hcpe_hevc_fill_indirect_cu_inter(VADriverContextP ctx,
                                       int qp, unsigned int *msg,
                                       int ctb_x, int ctb_y,
                                       int mb_x, int mb_y,
-                                      int ctb_width_in_mb, int width_in_ctb, int num_cu_record, int slice_type, int cu_index,int index)
+                                      int ctb_width_in_mb, int width_in_ctb, int num_cu_record, int slice_type, int cu_index, int index)
 {
     /* here cu == mb, so we use mb address as the cu address */
     /* to fill the indirect cu by the vme out */
@@ -1441,7 +1433,7 @@ gen9_hcpe_hevc_fill_indirect_cu_inter(VADriverContextP ctx,
             cu_size = 1;
             tu_size = 0x55;
             tu_count = 4;
-        }else if(inter_mode == AVC_INTER_8X8) {
+        } else if (inter_mode == AVC_INTER_8X8) {
             mv_ptr[0] = mv_ptr[index * 8 + 0 ];
             mv_ptr[1] = mv_ptr[index * 8 + 1 ];
             mv_ptr[2] = mv_ptr[index * 8 + 0 ];
@@ -1455,8 +1447,7 @@ gen9_hcpe_hevc_fill_indirect_cu_inter(VADriverContextP ctx,
             tu_size = 0x0;
             tu_count = 4;
 
-        }else
-        {
+        } else {
             mv_ptr[4] = mv_ptr[0];
             mv_ptr[5] = mv_ptr[1];
             mv_ptr[2] = mv_ptr[0];
@@ -1612,10 +1603,10 @@ intel_hevc_slice_insert_packed_data(VADriverContextP ctx,
 
         /* For the Normal HEVC */
         slice_header_length_in_bits = build_hevc_slice_header(pSequenceParameter,
-                                      pPicParameter,
-                                      pSliceParameter,
-                                      &slice_header,
-                                      0);
+                                                              pPicParameter,
+                                                              pSliceParameter,
+                                                              &slice_header,
+                                                              0);
         mfc_context->insert_object(ctx, encoder_context,
                                    (unsigned int *)slice_header,
                                    ALIGN(slice_header_length_in_bits, 32) >> 5,
@@ -1654,10 +1645,10 @@ intel_hevc_slice_insert_packed_data(VADriverContextP ctx,
 
 static void
 gen9_hcpe_hevc_pipeline_slice_programing(VADriverContextP ctx,
-        struct encode_state *encode_state,
-        struct intel_encoder_context *encoder_context,
-        int slice_index,
-        struct intel_batchbuffer *slice_batch)
+                                         struct encode_state *encode_state,
+                                         struct intel_encoder_context *encoder_context,
+                                         int slice_index,
+                                         struct intel_batchbuffer *slice_batch)
 {
     struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
@@ -1666,7 +1657,7 @@ gen9_hcpe_hevc_pipeline_slice_programing(VADriverContextP ctx,
     VAEncSliceParameterBufferHEVC *pSliceParameter = (VAEncSliceParameterBufferHEVC *)encode_state->slice_params_ext[slice_index]->buffer;
     int qp_slice = pPicParameter->pic_init_qp + pSliceParameter->slice_qp_delta;
     unsigned int rate_control_mode = encoder_context->rate_control_mode;
-    //unsigned char *slice_header = NULL;	  // for future use
+    //unsigned char *slice_header = NULL;     // for future use
     //int slice_header_length_in_bits = 0;
     unsigned int tail_data[] = { 0x0, 0x0 };
     int slice_type = pSliceParameter->slice_type;
@@ -1681,8 +1672,8 @@ gen9_hcpe_hevc_pipeline_slice_programing(VADriverContextP ctx,
     int i_ctb, ctb_x, ctb_y;
     unsigned int split_coding_unit_flag = 0;
     int width_in_mbs = (pSequenceParameter->pic_width_in_luma_samples + 15) / 16;
-    int row_pad_flag = (pSequenceParameter->pic_height_in_luma_samples % ctb_size)> 0 ? 1:0;
-    int col_pad_flag = (pSequenceParameter->pic_width_in_luma_samples % ctb_size)> 0 ? 1:0;
+    int row_pad_flag = (pSequenceParameter->pic_height_in_luma_samples % ctb_size) > 0 ? 1 : 0;
+    int col_pad_flag = (pSequenceParameter->pic_width_in_luma_samples % ctb_size) > 0 ? 1 : 0;
 
     int is_intra = (slice_type == HEVC_SLICE_I);
     unsigned int *msg = NULL;
@@ -1706,12 +1697,11 @@ gen9_hcpe_hevc_pipeline_slice_programing(VADriverContextP ctx,
     qp = qp_slice;
     if (rate_control_mode == VA_RC_CBR) {
         qp = mfc_context->bit_rate_control_context[slice_type].QpPrimeY;
-        if(slice_type == HEVC_SLICE_B) {
-            if(pSequenceParameter->ip_period == 1)
-            {
+        if (slice_type == HEVC_SLICE_B) {
+            if (pSequenceParameter->ip_period == 1) {
                 qp = mfc_context->bit_rate_control_context[HEVC_SLICE_P].QpPrimeY;
 
-            }else if(mfc_context->vui_hrd.i_frame_number % pSequenceParameter->ip_period == 1){
+            } else if (mfc_context->vui_hrd.i_frame_number % pSequenceParameter->ip_period == 1) {
                 qp = mfc_context->bit_rate_control_context[HEVC_SLICE_P].QpPrimeY;
             }
         }
@@ -1758,7 +1748,7 @@ gen9_hcpe_hevc_pipeline_slice_programing(VADriverContextP ctx,
     msg_ptr = (unsigned char *)vme_context->vme_output.bo->virtual;
     dri_bo_map(mfc_context->hcp_indirect_cu_object.bo , 1);
 
-    for (i_ctb = pSliceParameter->slice_segment_address;i_ctb < pSliceParameter->slice_segment_address + pSliceParameter->num_ctu_in_slice; i_ctb++) {
+    for (i_ctb = pSliceParameter->slice_segment_address; i_ctb < pSliceParameter->slice_segment_address + pSliceParameter->num_ctu_in_slice; i_ctb++) {
         int last_ctb = (i_ctb == (pSliceParameter->slice_segment_address + pSliceParameter->num_ctu_in_slice - 1));
         int ctb_height_in_mb_internal = ctb_width_in_mb;
         int ctb_width_in_mb_internal = ctb_width_in_mb;
@@ -1770,20 +1760,18 @@ gen9_hcpe_hevc_pipeline_slice_programing(VADriverContextP ctx,
         drop_cu_row_in_last_mb = 0;
         drop_cu_column_in_last_mb = 0;
 
-        if(ctb_y == (height_in_ctb - 1) && row_pad_flag)
-        {
-            ctb_height_in_mb_internal = (pSequenceParameter->pic_height_in_luma_samples - (ctb_y * ctb_size) + 15)/16;
+        if (ctb_y == (height_in_ctb - 1) && row_pad_flag) {
+            ctb_height_in_mb_internal = (pSequenceParameter->pic_height_in_luma_samples - (ctb_y * ctb_size) + 15) / 16;
 
-            if((log2_cu_size == 3) && (pSequenceParameter->pic_height_in_luma_samples % 16))
-                drop_cu_row_in_last_mb = (16 - (pSequenceParameter->pic_height_in_luma_samples % 16))>>log2_cu_size;
+            if ((log2_cu_size == 3) && (pSequenceParameter->pic_height_in_luma_samples % 16))
+                drop_cu_row_in_last_mb = (16 - (pSequenceParameter->pic_height_in_luma_samples % 16)) >> log2_cu_size;
         }
 
-        if(ctb_x == (width_in_ctb - 1) && col_pad_flag)
-        {
+        if (ctb_x == (width_in_ctb - 1) && col_pad_flag) {
             ctb_width_in_mb_internal = (pSequenceParameter->pic_width_in_luma_samples - (ctb_x * ctb_size) + 15) / 16;
 
-            if((log2_cu_size == 3) && (pSequenceParameter->pic_width_in_luma_samples % 16))
-                drop_cu_column_in_last_mb = (16 - (pSequenceParameter->pic_width_in_luma_samples % 16))>>log2_cu_size;
+            if ((log2_cu_size == 3) && (pSequenceParameter->pic_width_in_luma_samples % 16))
+                drop_cu_column_in_last_mb = (16 - (pSequenceParameter->pic_width_in_luma_samples % 16)) >> log2_cu_size;
         }
 
         mb_x = 0;
@@ -1794,16 +1782,14 @@ gen9_hcpe_hevc_pipeline_slice_programing(VADriverContextP ctx,
         cu_index = 0;
         mb_addr = 0;
         msg = NULL;
-        for (mb_y = 0; mb_y < ctb_height_in_mb_internal; mb_y++)
-        {
+        for (mb_y = 0; mb_y < ctb_height_in_mb_internal; mb_y++) {
             mb_addr = macroblock_address + mb_y * width_in_mbs ;
-            for (mb_x = 0; mb_x < ctb_width_in_mb_internal; mb_x++)
-            {
+            for (mb_x = 0; mb_x < ctb_width_in_mb_internal; mb_x++) {
                 max_cu_num_in_mb = 4;
-                if(drop_cu_row_in_last_mb && (mb_y == ctb_height_in_mb_internal - 1))
+                if (drop_cu_row_in_last_mb && (mb_y == ctb_height_in_mb_internal - 1))
                     max_cu_num_in_mb /= 2;
 
-                if(drop_cu_column_in_last_mb && (mb_x == ctb_width_in_mb_internal - 1))
+                if (drop_cu_column_in_last_mb && (mb_x == ctb_width_in_mb_internal - 1))
                     max_cu_num_in_mb /= 2;
 
                 /* get the mb info from the vme out */
@@ -1816,68 +1802,63 @@ gen9_hcpe_hevc_pipeline_slice_programing(VADriverContextP ctx,
                 if (is_intra || intra_rdo < inter_rdo) {
                     /* fill intra cu */
                     tmp_mb_mode = (msg[0] & AVC_INTRA_MODE_MASK) >> 4;
-                    if(max_cu_num_in_mb < 4){
-                        if(tmp_mb_mode == AVC_INTRA_16X16)
-                        {
-                            msg[0] = (msg[0] & !AVC_INTRA_MODE_MASK) | (AVC_INTRA_8X8<<4);
+                    if (max_cu_num_in_mb < 4) {
+                        if (tmp_mb_mode == AVC_INTRA_16X16) {
+                            msg[0] = (msg[0] & !AVC_INTRA_MODE_MASK) | (AVC_INTRA_8X8 << 4);
                             tmp_mb_mode = AVC_INTRA_8X8;
                         }
 
-                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,0);
-                        if(--max_cu_num_in_mb > 0)
-                            gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,2);
+                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 0);
+                        if (--max_cu_num_in_mb > 0)
+                            gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 2);
 
-                        if(ctb_width_in_mb == 2)
+                        if (ctb_width_in_mb == 2)
                             split_coding_unit_flag |= 0x1 << (mb_x + mb_y * ctb_width_in_mb + 16);
-                        else if(ctb_width_in_mb == 1)
+                        else if (ctb_width_in_mb == 1)
                             split_coding_unit_flag |= 0x1 << 20;
-                    }
-                    else if(tmp_mb_mode == AVC_INTRA_16X16) {
-                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,0);
+                    } else if (tmp_mb_mode == AVC_INTRA_16X16) {
+                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 0);
                     } else { // for 4x4 to use 8x8 replace
-                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,0);
-                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,1);
-                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,2);
-                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,3);
-                        if(ctb_width_in_mb == 2)
+                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 0);
+                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 1);
+                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 2);
+                        gen9_hcpe_hevc_fill_indirect_cu_intra(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 3);
+                        if (ctb_width_in_mb == 2)
                             split_coding_unit_flag |= 0x1 << (mb_x + mb_y * ctb_width_in_mb + 16);
-                        else if(ctb_width_in_mb == 1)
+                        else if (ctb_width_in_mb == 1)
                             split_coding_unit_flag |= 0x1 << 20;
                     }
                 } else {
                     msg += AVC_INTER_MSG_OFFSET;
                     /* fill inter cu */
                     tmp_mb_mode = msg[0] & AVC_INTER_MODE_MASK;
-                    if(max_cu_num_in_mb < 4)
-                    {
-                        if(tmp_mb_mode != AVC_INTER_8X8)
-                        {
+                    if (max_cu_num_in_mb < 4) {
+                        if (tmp_mb_mode != AVC_INTER_8X8) {
                             msg[0] = (msg[0] & !AVC_INTER_MODE_MASK) | AVC_INTER_8X8;
                             tmp_mb_mode = AVC_INTER_8X8;
                         }
-                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,0);
-                        if(--max_cu_num_in_mb > 0)
-                            gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,1);
+                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 0);
+                        if (--max_cu_num_in_mb > 0)
+                            gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 1);
 
-                        if(ctb_width_in_mb == 2)
+                        if (ctb_width_in_mb == 2)
                             split_coding_unit_flag |= 0x1 << (mb_x + mb_y * ctb_width_in_mb + 16);
-                        else if(ctb_width_in_mb == 1)
+                        else if (ctb_width_in_mb == 1)
                             split_coding_unit_flag |= 0x1 << 20;
-                    }
-                    else if (tmp_mb_mode == AVC_INTER_8X8){
-                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,0);
-                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,1);
-                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,2);
-                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,3);
-                        if(ctb_width_in_mb == 2)
+                    } else if (tmp_mb_mode == AVC_INTER_8X8) {
+                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 0);
+                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 1);
+                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 2);
+                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 3);
+                        if (ctb_width_in_mb == 2)
                             split_coding_unit_flag |= 0x1 << (mb_x + mb_y * ctb_width_in_mb + 16);
-                        else if(ctb_width_in_mb == 1)
+                        else if (ctb_width_in_mb == 1)
                             split_coding_unit_flag |= 0x1 << 20;
 
-                    }else if(tmp_mb_mode == AVC_INTER_16X16 ||
-                        tmp_mb_mode == AVC_INTER_8X16 ||
-                        tmp_mb_mode == AVC_INTER_16X8) {
-                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type,cu_index++,0);
+                    } else if (tmp_mb_mode == AVC_INTER_16X16 ||
+                               tmp_mb_mode == AVC_INTER_8X16 ||
+                               tmp_mb_mode == AVC_INTER_16X8) {
+                        gen9_hcpe_hevc_fill_indirect_cu_inter(ctx, encode_state, encoder_context, qp, msg, ctb_x, ctb_y, mb_x, mb_y, ctb_width_in_mb, width_in_ctb, num_cu_record, slice_type, cu_index++, 0);
                     }
                 }
                 mb_addr++;
@@ -1965,11 +1946,10 @@ gen9_hcpe_hevc_pipeline_programing(VADriverContextP ctx,
 
     BEGIN_BCS_BATCH(batch, 3);
     OUT_BCS_BATCH(batch, MI_BATCH_BUFFER_START | (1 << 8) | (1 << 0));
-    OUT_BCS_RELOC(batch,
-                  slice_batch_bo,
-                  I915_GEM_DOMAIN_COMMAND, 0,
-                  0);
-    OUT_BCS_BATCH(batch, 0);
+    OUT_BCS_RELOC64(batch,
+                    slice_batch_bo,
+                    I915_GEM_DOMAIN_COMMAND, 0,
+                    0);
     ADVANCE_BCS_BATCH(batch);
 
     // end programing
@@ -1979,9 +1959,9 @@ gen9_hcpe_hevc_pipeline_programing(VADriverContextP ctx,
 }
 
 void intel_hcpe_hevc_pipeline_header_programing(VADriverContextP ctx,
-        struct encode_state *encode_state,
-        struct intel_encoder_context *encoder_context,
-        struct intel_batchbuffer *slice_batch)
+                                                struct encode_state *encode_state,
+                                                struct intel_encoder_context *encoder_context,
+                                                struct intel_batchbuffer *slice_batch)
 {
     struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
     int idx = va_enc_packed_type_to_idx(VAEncPackedHeaderHEVC_VPS);
@@ -2105,7 +2085,7 @@ VAStatus intel_hcpe_hevc_prepare(VADriverContextP ctx,
     assert(hevc_encoder_surface);
 
     if (hevc_encoder_surface) {
-        hevc_encoder_surface->has_p010_to_nv12_done=0;
+        hevc_encoder_surface->has_p010_to_nv12_done = 0;
         hevc_encoder_surface->base.frame_store_id = -1;
         mfc_context->current_collocated_mv_temporal_buffer[NUM_HCP_CURRENT_COLLOCATED_MV_TEMPORAL_BUFFERS - 1].bo = hevc_encoder_surface->motion_vector_temporal_bo;
         dri_bo_reference(hevc_encoder_surface->motion_vector_temporal_bo);
@@ -2163,15 +2143,16 @@ VAStatus intel_hcpe_hevc_prepare(VADriverContextP ctx,
 
 static void
 intel_hcpe_bit_rate_control_context_init(struct encode_state *encode_state,
-        struct gen9_hcpe_context *mfc_context)
+                                         struct intel_encoder_context *encoder_context)
 {
+    struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
     VAEncSequenceParameterBufferHEVC *pSequenceParameter = (VAEncSequenceParameterBufferHEVC *)encode_state->seq_param_ext->buffer;
     int ctb_size = 16;
     int width_in_mbs = (pSequenceParameter->pic_width_in_luma_samples + ctb_size - 1) / ctb_size;
     int height_in_mbs = (pSequenceParameter->pic_height_in_luma_samples + ctb_size - 1) / ctb_size;
 
-    float fps =  pSequenceParameter->vui_time_scale / pSequenceParameter->vui_num_units_in_tick ;
-    double bitrate = pSequenceParameter->bits_per_second * 1.0;
+    double fps = (double)encoder_context->brc.framerate[0].num / (double)encoder_context->brc.framerate[0].den;
+    double bitrate = encoder_context->brc.bits_per_second[0];
     int inter_mb_size = bitrate * 1.0 / (fps + 4.0) / width_in_mbs / height_in_mbs;
     int intra_mb_size = inter_mb_size * 5.0;
     int i;
@@ -2214,11 +2195,9 @@ static void intel_hcpe_brc_init(struct encode_state *encode_state,
 {
     struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
     VAEncSequenceParameterBufferHEVC *pSequenceParameter = (VAEncSequenceParameterBufferHEVC *)encode_state->seq_param_ext->buffer;
-    VAEncMiscParameterHRD* pParameterHRD = NULL;
-    VAEncMiscParameterBuffer* pMiscParamHRD = NULL;
 
-    double bitrate = pSequenceParameter->bits_per_second * 1.0;
-    double framerate = (double)pSequenceParameter->vui_time_scale / (double)pSequenceParameter->vui_num_units_in_tick;
+    double bitrate = (double)encoder_context->brc.bits_per_second[0];
+    double framerate = (double)encoder_context->brc.framerate[0].num / (double)encoder_context->brc.framerate[0].den;
     int inum = 1, pnum = 0, bnum = 0; /* Gop structure: number of I, P, B frames in the Gop. */
     int intra_period = pSequenceParameter->intra_period;
     int ip_period = pSequenceParameter->ip_period;
@@ -2231,18 +2210,12 @@ static void intel_hcpe_brc_init(struct encode_state *encode_state,
     double buffer_size = 0;
     int bpp = 1;
 
-    if((pSequenceParameter->seq_fields.bits.bit_depth_luma_minus8 > 0) ||
+    if ((pSequenceParameter->seq_fields.bits.bit_depth_luma_minus8 > 0) ||
         (pSequenceParameter->seq_fields.bits.bit_depth_chroma_minus8 > 0))
         bpp = 2;
 
     qp1_size = qp1_size * bpp;
     qp51_size = qp51_size * bpp;
-
-    if (!encode_state->misc_param[VAEncMiscParameterTypeHRD][0] || !encode_state->misc_param[VAEncMiscParameterTypeHRD][0]->buffer)
-        return;
-
-    pMiscParamHRD = (VAEncMiscParameterBuffer*)encode_state->misc_param[VAEncMiscParameterTypeHRD][0]->buffer;
-    pParameterHRD = (VAEncMiscParameterHRD*)pMiscParamHRD->data;
 
     if (pSequenceParameter->ip_period) {
         pnum = (intra_period + ip_period - 1) / ip_period - 1;
@@ -2252,7 +2225,7 @@ static void intel_hcpe_brc_init(struct encode_state *encode_state,
     mfc_context->brc.mode = encoder_context->rate_control_mode;
 
     mfc_context->brc.target_frame_size[HEVC_SLICE_I] = (int)((double)((bitrate * intra_period) / framerate) /
-            (double)(inum + BRC_PWEIGHT * pnum + BRC_BWEIGHT * bnum));
+                                                             (double)(inum + BRC_PWEIGHT * pnum + BRC_BWEIGHT * bnum));
     mfc_context->brc.target_frame_size[HEVC_SLICE_P] = BRC_PWEIGHT * mfc_context->brc.target_frame_size[HEVC_SLICE_I];
     mfc_context->brc.target_frame_size[HEVC_SLICE_B] = BRC_BWEIGHT * mfc_context->brc.target_frame_size[HEVC_SLICE_I];
 
@@ -2262,30 +2235,24 @@ static void intel_hcpe_brc_init(struct encode_state *encode_state,
 
     bpf = mfc_context->brc.bits_per_frame = bitrate / framerate;
 
-    if (!pParameterHRD || pParameterHRD->buffer_size <= 0)
-    {
+    if (!encoder_context->brc.hrd_buffer_size) {
         mfc_context->hrd.buffer_size = bitrate * ratio;
         mfc_context->hrd.current_buffer_fullness =
-            (double)(bitrate * ratio/2 < mfc_context->hrd.buffer_size) ?
-            bitrate * ratio/2 : mfc_context->hrd.buffer_size / 2.;
-    }else
-    {
-        buffer_size = (double)pParameterHRD->buffer_size ;
-        if(buffer_size < bitrate * ratio_min)
-        {
+            (double)(bitrate * ratio / 2 < mfc_context->hrd.buffer_size) ?
+            bitrate * ratio / 2 : mfc_context->hrd.buffer_size / 2.;
+    } else {
+        buffer_size = (double)encoder_context->brc.hrd_buffer_size;
+        if (buffer_size < bitrate * ratio_min) {
             buffer_size = bitrate * ratio_min;
-        }else if (buffer_size > bitrate * ratio_max)
-        {
+        } else if (buffer_size > bitrate * ratio_max) {
             buffer_size = bitrate * ratio_max ;
         }
-        mfc_context->hrd.buffer_size =buffer_size;
-        if(pParameterHRD->initial_buffer_fullness > 0)
-        {
+        mfc_context->hrd.buffer_size = buffer_size;
+        if (encoder_context->brc.hrd_initial_buffer_fullness) {
             mfc_context->hrd.current_buffer_fullness =
-                (double)(pParameterHRD->initial_buffer_fullness < mfc_context->hrd.buffer_size) ?
-                pParameterHRD->initial_buffer_fullness : mfc_context->hrd.buffer_size / 2.;
-        }else
-        {
+                (double)(encoder_context->brc.hrd_initial_buffer_fullness < mfc_context->hrd.buffer_size) ?
+                encoder_context->brc.hrd_initial_buffer_fullness : mfc_context->hrd.buffer_size / 2.;
+        } else {
             mfc_context->hrd.current_buffer_fullness = mfc_context->hrd.buffer_size / 2.;
 
         }
@@ -2358,11 +2325,10 @@ int intel_hcpe_brc_postpack(struct encode_state *encode_state,
     double x, y;
     double frame_size_alpha;
 
-    if(slicetype == HEVC_SLICE_B) {
-        if(pSequenceParameter->ip_period == 1)
-        {
+    if (slicetype == HEVC_SLICE_B) {
+        if (pSequenceParameter->ip_period == 1) {
             slicetype = HEVC_SLICE_P;
-        }else if(mfc_context->vui_hrd.i_frame_number % pSequenceParameter->ip_period == 1){
+        } else if (mfc_context->vui_hrd.i_frame_number % pSequenceParameter->ip_period == 1) {
             slicetype = HEVC_SLICE_P;
         }
     }
@@ -2468,9 +2434,8 @@ static void intel_hcpe_hrd_context_init(struct encode_state *encode_state,
                                         struct intel_encoder_context *encoder_context)
 {
     struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
-    VAEncSequenceParameterBufferHEVC *pSequenceParameter = (VAEncSequenceParameterBufferHEVC *)encode_state->seq_param_ext->buffer;
     unsigned int rate_control_mode = encoder_context->rate_control_mode;
-    int target_bit_rate = pSequenceParameter->bits_per_second;
+    unsigned int target_bit_rate = encoder_context->brc.bits_per_second[0];
 
     // current we only support CBR mode.
     if (rate_control_mode == VA_RC_CBR) {
@@ -2519,51 +2484,6 @@ int intel_hcpe_interlace_check(VADriverContextP ctx,
     return 1;
 }
 
-/*
- * Check whether the parameters related with CBR are updated and decide whether
- * it needs to reinitialize the configuration related with CBR.
- * Currently it will check the following parameters:
- *      bits_per_second
- *      frame_rate
- *      gop_configuration(intra_period, ip_period, intra_idr_period)
- */
-static bool intel_hcpe_brc_updated_check(struct encode_state *encode_state,
-        struct intel_encoder_context *encoder_context)
-{
-    /* to do */
-    unsigned int rate_control_mode = encoder_context->rate_control_mode;
-    struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
-    double cur_fps, cur_bitrate;
-    VAEncSequenceParameterBufferHEVC *pSequenceParameter;
-
-
-    if (rate_control_mode != VA_RC_CBR) {
-        return false;
-    }
-
-    pSequenceParameter = (VAEncSequenceParameterBufferHEVC *)encode_state->seq_param_ext->buffer;
-
-    cur_bitrate = pSequenceParameter->bits_per_second;
-    cur_fps = (double)pSequenceParameter->vui_time_scale /
-              (double)pSequenceParameter->vui_num_units_in_tick;
-
-    if ((cur_bitrate == mfc_context->brc.saved_bps) &&
-        (cur_fps == mfc_context->brc.saved_fps) &&
-        (pSequenceParameter->intra_period == mfc_context->brc.saved_intra_period) &&
-        (pSequenceParameter->intra_idr_period == mfc_context->brc.saved_idr_period) &&
-        (pSequenceParameter->intra_period == mfc_context->brc.saved_intra_period)) {
-        /* the parameters related with CBR are not updaetd */
-        return false;
-    }
-
-    mfc_context->brc.saved_ip_period = pSequenceParameter->ip_period;
-    mfc_context->brc.saved_intra_period = pSequenceParameter->intra_period;
-    mfc_context->brc.saved_idr_period = pSequenceParameter->intra_idr_period;
-    mfc_context->brc.saved_fps = cur_fps;
-    mfc_context->brc.saved_bps = cur_bitrate;
-    return true;
-}
-
 void intel_hcpe_brc_prepare(struct encode_state *encode_state,
                             struct intel_encoder_context *encoder_context)
 {
@@ -2574,12 +2494,12 @@ void intel_hcpe_brc_prepare(struct encode_state *encode_state,
         bool brc_updated;
         assert(encoder_context->codec != CODEC_MPEG2);
 
-        brc_updated = intel_hcpe_brc_updated_check(encode_state, encoder_context);
+        brc_updated = encoder_context->brc.need_reset;
 
         /*Programing bit rate control */
         if ((mfc_context->bit_rate_control_context[HEVC_SLICE_I].MaxSizeInWord == 0) ||
             brc_updated) {
-            intel_hcpe_bit_rate_control_context_init(encode_state, mfc_context);
+            intel_hcpe_bit_rate_control_context_init(encode_state, encoder_context);
             intel_hcpe_brc_init(encode_state, encoder_context);
         }
 

@@ -43,6 +43,8 @@
 #include "gen9_mfc.h"
 #include "intel_media.h"
 #include "gen9_vp9_encapi.h"
+#include "i965_post_processing.h"
+#include "i965_encoder_api.h"
 
 #ifdef SURFACE_STATE_PADDED_SIZE
 #undef SURFACE_STATE_PADDED_SIZE
@@ -273,9 +275,9 @@ gen9_vme_output_buffer_setup(VADriverContextP ctx,
 
 static void
 gen9_vme_avc_output_buffer_setup(VADriverContextP ctx,
-                             struct encode_state *encode_state,
-                             int index,
-                             struct intel_encoder_context *encoder_context)
+                                 struct encode_state *encode_state,
+                                 int index,
+                                 struct intel_encoder_context *encoder_context)
 {
     VAEncSequenceParameterBufferH264 *pSequenceParameter = (VAEncSequenceParameterBufferH264 *)encode_state->seq_param_ext->buffer;
     VAEncSliceParameterBufferH264 *pSliceParameter = (VAEncSliceParameterBufferH264 *)encode_state->slice_params_ext[0]->buffer;
@@ -314,9 +316,9 @@ gen9_vme_output_vme_batchbuffer_setup(VADriverContextP ctx,
 
 static void
 gen9_vme_avc_output_vme_batchbuffer_setup(VADriverContextP ctx,
-                                      struct encode_state *encode_state,
-                                      int index,
-                                      struct intel_encoder_context *encoder_context)
+                                          struct encode_state *encode_state,
+                                          int index,
+                                          struct intel_encoder_context *encoder_context)
 {
     VAEncSequenceParameterBufferH264 *pSequenceParameter = (VAEncSequenceParameterBufferH264 *)encode_state->seq_param_ext->buffer;
     int width_in_mbs = pSequenceParameter->picture_width_in_mbs;
@@ -325,7 +327,7 @@ gen9_vme_avc_output_vme_batchbuffer_setup(VADriverContextP ctx,
     gen9_vme_output_vme_batchbuffer_setup(ctx, encode_state, index, encoder_context, width_in_mbs, height_in_mbs);
 }
 
-                                      
+
 static VAStatus
 gen9_vme_surface_setup(VADriverContextP ctx,
                        struct encode_state *encode_state,
@@ -375,10 +377,10 @@ static VAStatus gen9_vme_interface_setup(VADriverContextP ctx,
     dri_bo *bo;
     unsigned char *desc_ptr;
 
-    bo = vme_context->gpe_context.dynamic_state.bo;
+    bo = vme_context->gpe_context.idrt.bo;
     dri_bo_map(bo, 1);
     assert(bo->virtual);
-    desc_ptr = (unsigned char *)bo->virtual + vme_context->gpe_context.idrt_offset;
+    desc_ptr = (unsigned char *)bo->virtual + vme_context->gpe_context.idrt.offset;
 
     desc = (struct gen8_interface_descriptor_data *)desc_ptr;
 
@@ -426,21 +428,21 @@ static VAStatus gen9_vme_constant_setup(VADriverContextP ctx,
         }
     } else if (encoder_context->codec == CODEC_MPEG2) {
         mv_num = 2 / denom;
-    }else if (encoder_context->codec == CODEC_HEVC) {
-        if (vme_context->hevc_level >= 30*3) {
+    } else if (encoder_context->codec == CODEC_HEVC) {
+        if (vme_context->hevc_level >= 30 * 3) {
             mv_num = 16;
 
-            if (vme_context->hevc_level >= 31*3)
+            if (vme_context->hevc_level >= 31 * 3)
                 mv_num = 8;
         }/* use the avc level setting */
     }
 
     vme_state_message[31] = mv_num;
 
-    dri_bo_map(vme_context->gpe_context.dynamic_state.bo, 1);
-    assert(vme_context->gpe_context.dynamic_state.bo->virtual);
-    constant_buffer = (unsigned char *)vme_context->gpe_context.dynamic_state.bo->virtual +
-                                         vme_context->gpe_context.curbe_offset;
+    dri_bo_map(vme_context->gpe_context.curbe.bo, 1);
+    assert(vme_context->gpe_context.curbe.bo->virtual);
+    constant_buffer = (unsigned char *)vme_context->gpe_context.curbe.bo->virtual +
+                      vme_context->gpe_context.curbe.offset;
 
     /* VME MV/Mb cost table is passed by using const buffer */
     /* Now it uses the fixed search path. So it is constructed directly
@@ -448,14 +450,14 @@ static VAStatus gen9_vme_constant_setup(VADriverContextP ctx,
      */
     memcpy(constant_buffer, (char *)vme_context->vme_state_message, 128);
 
-    dri_bo_unmap(vme_context->gpe_context.dynamic_state.bo);
+    dri_bo_unmap(vme_context->gpe_context.curbe.bo);
 
     return VA_STATUS_SUCCESS;
 }
 
-#define		MB_SCOREBOARD_A		(1 << 0)
-#define		MB_SCOREBOARD_B		(1 << 1)
-#define		MB_SCOREBOARD_C		(1 << 2)
+#define     MB_SCOREBOARD_A     (1 << 0)
+#define     MB_SCOREBOARD_B     (1 << 1)
+#define     MB_SCOREBOARD_C     (1 << 2)
 
 /* check whether the mb of (x_index, y_index) is out of bound */
 static inline int loop_in_bounds(int x_index, int y_index, int first_mb, int num_mb, int mb_width, int mb_height)
@@ -474,18 +476,18 @@ static inline int loop_in_bounds(int x_index, int y_index, int first_mb, int num
 
 static void
 gen9wa_vme_walker_fill_vme_batchbuffer(VADriverContextP ctx,
-                                     struct encode_state *encode_state,
-                                     int mb_width, int mb_height,
-                                     int kernel,
-                                     int transform_8x8_mode_flag,
-                                     struct intel_encoder_context *encoder_context)
+                                       struct encode_state *encode_state,
+                                       int mb_width, int mb_height,
+                                       int kernel,
+                                       int transform_8x8_mode_flag,
+                                       struct intel_encoder_context *encoder_context)
 {
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
     int mb_row;
     int s;
     unsigned int *command_ptr;
 
-#define		USE_SCOREBOARD		(1 << 21)
+#define     USE_SCOREBOARD      (1 << 21)
 
     dri_bo_map(vme_context->vme_batchbuffer.bo, 1);
     command_ptr = vme_context->vme_batchbuffer.bo->virtual;
@@ -502,7 +504,7 @@ gen9wa_vme_walker_fill_vme_batchbuffer(VADriverContextP ctx,
         y_outer = first_mb / mb_width;
         mb_row = y_outer;
 
-        for (; x_outer < (mb_width -2 ) && !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height); ) {
+        for (; x_outer < (mb_width - 2) && !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height);) {
             x_inner = x_outer;
             y_inner = y_outer;
             for (; !loop_in_bounds(x_inner, y_inner, first_mb, num_mb, mb_width, mb_height);) {
@@ -517,7 +519,7 @@ gen9wa_vme_walker_fill_vme_batchbuffer(VADriverContextP ctx,
                     score_dep |= MB_SCOREBOARD_B;
                     if (x_inner != 0)
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
-                    if (x_inner != (mb_width -1)) {
+                    if (x_inner != (mb_width - 1)) {
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
                         score_dep |= MB_SCOREBOARD_C;
                     }
@@ -548,7 +550,7 @@ gen9wa_vme_walker_fill_vme_batchbuffer(VADriverContextP ctx,
             xtemp_outer = 0;
         x_outer = xtemp_outer;
         y_outer = first_mb / mb_width;
-        for (;!loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height); ) {
+        for (; !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height);) {
             y_inner = y_outer;
             x_inner = x_outer;
             for (; !loop_in_bounds(x_inner, y_inner, first_mb, num_mb, mb_width, mb_height);) {
@@ -564,7 +566,7 @@ gen9wa_vme_walker_fill_vme_batchbuffer(VADriverContextP ctx,
                     if (x_inner != 0)
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
 
-                    if (x_inner != (mb_width -1)) {
+                    if (x_inner != (mb_width - 1)) {
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
                         score_dep |= MB_SCOREBOARD_C;
                     }
@@ -634,7 +636,7 @@ gen9_vme_fill_vme_batchbuffer(VADriverContextP ctx,
         int slice_mb_number = pSliceParameter->num_macroblocks;
         unsigned int mb_intra_ub;
         int slice_mb_x = pSliceParameter->macroblock_address % mb_width;
-        for (i = 0; i < slice_mb_number;  ) {
+        for (i = 0; i < slice_mb_number;) {
             int mb_count = i + slice_mb_begin;
             mb_x = mb_count % mb_width;
             mb_y = mb_count / mb_width;
@@ -646,7 +648,7 @@ gen9_vme_fill_vme_batchbuffer(VADriverContextP ctx,
                 mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_B;
                 if (mb_x != 0)
                     mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
-                if (mb_x != (mb_width -1))
+                if (mb_x != (mb_width - 1))
                     mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
             }
             if (i < mb_width) {
@@ -767,11 +769,10 @@ static void gen9_vme_pipeline_programing(VADriverContextP ctx,
     gen9_gpe_pipeline_setup(ctx, &vme_context->gpe_context, batch);
     BEGIN_BATCH(batch, 3);
     OUT_BATCH(batch, MI_BATCH_BUFFER_START | (1 << 8) | (1 << 0));
-    OUT_RELOC(batch,
-              vme_context->vme_batchbuffer.bo,
-              I915_GEM_DOMAIN_COMMAND, 0,
-              0);
-    OUT_BATCH(batch, 0);
+    OUT_RELOC64(batch,
+                vme_context->vme_batchbuffer.bo,
+                I915_GEM_DOMAIN_COMMAND, 0,
+                0);
     ADVANCE_BATCH(batch);
 
     gen9_gpe_pipeline_end(ctx, &vme_context->gpe_context, batch);
@@ -791,7 +792,7 @@ static VAStatus gen9_vme_prepare(VADriverContextP ctx,
 
     if (!vme_context->h264_level ||
         (vme_context->h264_level != pSequenceParameter->level_idc)) {
-            vme_context->h264_level = pSequenceParameter->level_idc;
+        vme_context->h264_level = pSequenceParameter->level_idc;
     }
 
     intel_vme_update_mbmv_cost(ctx, encode_state, encoder_context);
@@ -909,15 +910,15 @@ gen9_vme_mpeg2_surface_setup(VADriverContextP ctx,
 
 static void
 gen9wa_vme_mpeg2_walker_fill_vme_batchbuffer(VADriverContextP ctx,
-                                           struct encode_state *encode_state,
-                                           int mb_width, int mb_height,
-                                           int kernel,
-                                           struct intel_encoder_context *encoder_context)
+                                             struct encode_state *encode_state,
+                                             int mb_width, int mb_height,
+                                             int kernel,
+                                             struct intel_encoder_context *encoder_context)
 {
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
     unsigned int *command_ptr;
 
-#define		MPEG2_SCOREBOARD		(1 << 21)
+#define     MPEG2_SCOREBOARD        (1 << 21)
 
     dri_bo_map(vme_context->vme_batchbuffer.bo, 1);
     command_ptr = vme_context->vme_batchbuffer.bo->virtual;
@@ -932,7 +933,7 @@ gen9wa_vme_mpeg2_walker_fill_vme_batchbuffer(VADriverContextP ctx,
         x_outer = 0;
         y_outer = 0;
 
-        for (; x_outer < (mb_width -2 ) && !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height); ) {
+        for (; x_outer < (mb_width - 2) && !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height);) {
             x_inner = x_outer;
             y_inner = y_outer;
             for (; !loop_in_bounds(x_inner, y_inner, first_mb, num_mb, mb_width, mb_height);) {
@@ -949,7 +950,7 @@ gen9wa_vme_mpeg2_walker_fill_vme_batchbuffer(VADriverContextP ctx,
                     if (x_inner != 0)
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
 
-                    if (x_inner != (mb_width -1)) {
+                    if (x_inner != (mb_width - 1)) {
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
                         score_dep |= MB_SCOREBOARD_C;
                     }
@@ -980,7 +981,7 @@ gen9wa_vme_mpeg2_walker_fill_vme_batchbuffer(VADriverContextP ctx,
             xtemp_outer = 0;
         x_outer = xtemp_outer;
         y_outer = 0;
-        for (;!loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height); ) {
+        for (; !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height);) {
             y_inner = y_outer;
             x_inner = x_outer;
             for (; !loop_in_bounds(x_inner, y_inner, first_mb, num_mb, mb_width, mb_height);) {
@@ -997,7 +998,7 @@ gen9wa_vme_mpeg2_walker_fill_vme_batchbuffer(VADriverContextP ctx,
                     if (x_inner != 0)
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
 
-                    if (x_inner != (mb_width -1)) {
+                    if (x_inner != (mb_width - 1)) {
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
                         score_dep |= MB_SCOREBOARD_C;
                     }
@@ -1077,7 +1078,7 @@ gen9_vme_mpeg2_fill_vme_batchbuffer(VADriverContextP ctx,
                     if (mb_x != 0)
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
 
-                    if (mb_x != (mb_width -1))
+                    if (mb_x != (mb_width - 1))
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
                 }
 
@@ -1090,7 +1091,7 @@ gen9_vme_mpeg2_fill_vme_batchbuffer(VADriverContextP ctx,
 
                 /*inline data */
                 *command_ptr++ = (mb_width << 16 | mb_y << 8 | mb_x);
-                *command_ptr++ = ( (1 << 16) | transform_8x8_mode_flag | (mb_intra_ub << 8));
+                *command_ptr++ = ((1 << 16) | transform_8x8_mode_flag | (mb_intra_ub << 8));
 
                 *command_ptr++ = CMD_MEDIA_STATE_FLUSH;
                 *command_ptr++ = 0;
@@ -1145,10 +1146,10 @@ gen9_vme_mpeg2_pipeline_programing(VADriverContextP ctx,
 
     if (allow_hwscore)
         gen9wa_vme_mpeg2_walker_fill_vme_batchbuffer(ctx,
-                                                   encode_state,
-                                                   width_in_mbs, height_in_mbs,
-                                                   kernel_shader,
-                                                   encoder_context);
+                                                     encode_state,
+                                                     width_in_mbs, height_in_mbs,
+                                                     kernel_shader,
+                                                     encoder_context);
     else
         gen9_vme_mpeg2_fill_vme_batchbuffer(ctx,
                                             encode_state,
@@ -1161,11 +1162,10 @@ gen9_vme_mpeg2_pipeline_programing(VADriverContextP ctx,
     gen9_gpe_pipeline_setup(ctx, &vme_context->gpe_context, batch);
     BEGIN_BATCH(batch, 4);
     OUT_BATCH(batch, MI_BATCH_BUFFER_START | (1 << 8) | (1 << 0));
-    OUT_RELOC(batch,
-              vme_context->vme_batchbuffer.bo,
-              I915_GEM_DOMAIN_COMMAND, 0,
-              0);
-    OUT_BATCH(batch, 0);
+    OUT_RELOC64(batch,
+                vme_context->vme_batchbuffer.bo,
+                I915_GEM_DOMAIN_COMMAND, 0,
+                0);
     OUT_BATCH(batch, 0);
     ADVANCE_BATCH(batch);
 
@@ -1186,7 +1186,7 @@ gen9_vme_mpeg2_prepare(VADriverContextP ctx,
 
     if ((!vme_context->mpeg2_level) ||
         (vme_context->mpeg2_level != (seq_param->sequence_extension.bits.profile_and_level_indication & MPEG2_LEVEL_MASK))) {
-            vme_context->mpeg2_level = seq_param->sequence_extension.bits.profile_and_level_indication & MPEG2_LEVEL_MASK;
+        vme_context->mpeg2_level = seq_param->sequence_extension.bits.profile_and_level_indication & MPEG2_LEVEL_MASK;
     }
 
     /*Setup all the memory object*/
@@ -1218,10 +1218,10 @@ gen9_vme_mpeg2_pipeline(VADriverContextP ctx,
 
 static void
 gen9_vme_vp8_output_buffer_setup(VADriverContextP ctx,
-                                   struct encode_state *encode_state,
-                                   int index,
-                                   int is_intra,
-                                   struct intel_encoder_context *encoder_context)
+                                 struct encode_state *encode_state,
+                                 int index,
+                                 int is_intra,
+                                 struct intel_encoder_context *encoder_context)
 {
     VAEncSequenceParameterBufferVP8 *seq_param = (VAEncSequenceParameterBufferVP8 *)encode_state->seq_param_ext->buffer;
     int width_in_mbs = ALIGN(seq_param->frame_width, 16) / 16;
@@ -1232,9 +1232,9 @@ gen9_vme_vp8_output_buffer_setup(VADriverContextP ctx,
 
 static void
 gen9_vme_vp8_output_vme_batchbuffer_setup(VADriverContextP ctx,
-                                            struct encode_state *encode_state,
-                                            int index,
-                                            struct intel_encoder_context *encoder_context)
+                                          struct encode_state *encode_state,
+                                          int index,
+                                          struct intel_encoder_context *encoder_context)
 {
     VAEncSequenceParameterBufferVP8 *seq_param = (VAEncSequenceParameterBufferVP8 *)encode_state->seq_param_ext->buffer;
     int width_in_mbs = ALIGN(seq_param->frame_width, 16) / 16;
@@ -1245,9 +1245,9 @@ gen9_vme_vp8_output_vme_batchbuffer_setup(VADriverContextP ctx,
 
 static VAStatus
 gen9_vme_vp8_surface_setup(VADriverContextP ctx,
-                             struct encode_state *encode_state,
-                             int is_intra,
-                             struct intel_encoder_context *encoder_context)
+                           struct encode_state *encode_state,
+                           int is_intra,
+                           struct intel_encoder_context *encoder_context)
 {
     struct object_surface *obj_surface;
 
@@ -1281,9 +1281,9 @@ gen9_vme_vp8_surface_setup(VADriverContextP ctx,
 
 static void
 gen9_vme_vp8_pipeline_programing(VADriverContextP ctx,
-                                   struct encode_state *encode_state,
-                                   int is_intra,
-                                   struct intel_encoder_context *encoder_context)
+                                 struct encode_state *encode_state,
+                                 int is_intra,
+                                 struct intel_encoder_context *encoder_context)
 {
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
     struct intel_batchbuffer *batch = encoder_context->base.batch;
@@ -1302,11 +1302,10 @@ gen9_vme_vp8_pipeline_programing(VADriverContextP ctx,
     gen9_gpe_pipeline_setup(ctx, &vme_context->gpe_context, batch);
     BEGIN_BATCH(batch, 4);
     OUT_BATCH(batch, MI_BATCH_BUFFER_START | (1 << 8) | (1 << 0));
-    OUT_RELOC(batch,
-              vme_context->vme_batchbuffer.bo,
-              I915_GEM_DOMAIN_COMMAND, 0,
-              0);
-    OUT_BATCH(batch, 0);
+    OUT_RELOC64(batch,
+                vme_context->vme_batchbuffer.bo,
+                I915_GEM_DOMAIN_COMMAND, 0,
+                0);
     OUT_BATCH(batch, 0);
     ADVANCE_BATCH(batch);
 
@@ -1316,8 +1315,8 @@ gen9_vme_vp8_pipeline_programing(VADriverContextP ctx,
 }
 
 static VAStatus gen9_vme_vp8_prepare(VADriverContextP ctx,
-                                 struct encode_state *encode_state,
-                                 struct intel_encoder_context *encoder_context)
+                                     struct encode_state *encode_state,
+                                     struct intel_encoder_context *encoder_context)
 {
     VAStatus vaStatus = VA_STATUS_SUCCESS;
     VAEncPictureParameterBufferVP8 *pPicParameter = (VAEncPictureParameterBufferVP8 *)encode_state->pic_param_ext->buffer;
@@ -1339,9 +1338,9 @@ static VAStatus gen9_vme_vp8_prepare(VADriverContextP ctx,
 
 static VAStatus
 gen9_vme_vp8_pipeline(VADriverContextP ctx,
-                        VAProfile profile,
-                        struct encode_state *encode_state,
-                        struct intel_encoder_context *encoder_context)
+                      VAProfile profile,
+                      struct encode_state *encode_state,
+                      struct intel_encoder_context *encoder_context)
 {
     gen9_vme_media_init(ctx, encoder_context);
     gen9_vme_vp8_prepare(ctx, encode_state, encoder_context);
@@ -1355,9 +1354,9 @@ gen9_vme_vp8_pipeline(VADriverContextP ctx,
 
 static void
 gen9_vme_hevc_output_buffer_setup(VADriverContextP ctx,
-                             struct encode_state *encode_state,
-                             int index,
-                             struct intel_encoder_context *encoder_context)
+                                  struct encode_state *encode_state,
+                                  int index,
+                                  struct intel_encoder_context *encoder_context)
 
 {
     struct i965_driver_data *i965 = i965_driver_data(ctx);
@@ -1365,8 +1364,8 @@ gen9_vme_hevc_output_buffer_setup(VADriverContextP ctx,
     VAEncSequenceParameterBufferHEVC *pSequenceParameter = (VAEncSequenceParameterBufferHEVC *)encode_state->seq_param_ext->buffer;
     VAEncSliceParameterBufferHEVC *pSliceParameter = (VAEncSliceParameterBufferHEVC *)encode_state->slice_params_ext[0]->buffer;
     int is_intra = pSliceParameter->slice_type == HEVC_SLICE_I;
-    int width_in_mbs = (pSequenceParameter->pic_width_in_luma_samples + 15)/16;
-    int height_in_mbs = (pSequenceParameter->pic_height_in_luma_samples + 15)/16;
+    int width_in_mbs = (pSequenceParameter->pic_width_in_luma_samples + 15) / 16;
+    int height_in_mbs = (pSequenceParameter->pic_height_in_luma_samples + 15) / 16;
 
 
     vme_context->vme_output.num_blocks = width_in_mbs * height_in_mbs;
@@ -1396,16 +1395,16 @@ gen9_vme_hevc_output_buffer_setup(VADriverContextP ctx,
 
 static void
 gen9_vme_hevc_output_vme_batchbuffer_setup(VADriverContextP ctx,
-                                      struct encode_state *encode_state,
-                                      int index,
-                                      struct intel_encoder_context *encoder_context)
+                                           struct encode_state *encode_state,
+                                           int index,
+                                           struct intel_encoder_context *encoder_context)
 
 {
     struct i965_driver_data *i965 = i965_driver_data(ctx);
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
     VAEncSequenceParameterBufferHEVC *pSequenceParameter = (VAEncSequenceParameterBufferHEVC *)encode_state->seq_param_ext->buffer;
-    int width_in_mbs = (pSequenceParameter->pic_width_in_luma_samples + 15)/16;
-    int height_in_mbs = (pSequenceParameter->pic_height_in_luma_samples + 15)/16;
+    int width_in_mbs = (pSequenceParameter->pic_width_in_luma_samples + 15) / 16;
+    int height_in_mbs = (pSequenceParameter->pic_height_in_luma_samples + 15) / 16;
 
     vme_context->vme_batchbuffer.num_blocks = width_in_mbs * height_in_mbs + 1;
     vme_context->vme_batchbuffer.size_block = 64; /* 4 OWORDs */
@@ -1417,9 +1416,9 @@ gen9_vme_hevc_output_vme_batchbuffer_setup(VADriverContextP ctx,
 }
 static VAStatus
 gen9_vme_hevc_surface_setup(VADriverContextP ctx,
-                       struct encode_state *encode_state,
-                       int is_intra,
-                       struct intel_encoder_context *encoder_context)
+                            struct encode_state *encode_state,
+                            int is_intra,
+                            struct intel_encoder_context *encoder_context)
 {
     struct object_surface *obj_surface;
     VAEncSequenceParameterBufferHEVC *pSequenceParameter = (VAEncSequenceParameterBufferHEVC *)encode_state->seq_param_ext->buffer;
@@ -1429,9 +1428,9 @@ gen9_vme_hevc_surface_setup(VADriverContextP ctx,
     /* current picture for encoding */
     obj_surface = encode_state->input_yuv_object;
 
-    if((pSequenceParameter->seq_fields.bits.bit_depth_luma_minus8 > 0)
+    if ((pSequenceParameter->seq_fields.bits.bit_depth_luma_minus8 > 0)
         || (pSequenceParameter->seq_fields.bits.bit_depth_chroma_minus8 > 0)) {
-        hevc_encoder_surface = (GenHevcSurface *) obj_surface->private_data;
+        hevc_encoder_surface = (GenHevcSurface *)encode_state->reconstructed_object->private_data;
         assert(hevc_encoder_surface);
         obj_surface = hevc_encoder_surface->nv12_surface_obj;
     }
@@ -1461,11 +1460,11 @@ gen9_vme_hevc_surface_setup(VADriverContextP ctx,
 }
 static void
 gen9wa_vme_hevc_walker_fill_vme_batchbuffer(VADriverContextP ctx,
-                                     struct encode_state *encode_state,
-                                     int mb_width, int mb_height,
-                                     int kernel,
-                                     int transform_8x8_mode_flag,
-                                     struct intel_encoder_context *encoder_context)
+                                            struct encode_state *encode_state,
+                                            int mb_width, int mb_height,
+                                            int kernel,
+                                            int transform_8x8_mode_flag,
+                                            struct intel_encoder_context *encoder_context)
 {
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
     int mb_row;
@@ -1475,10 +1474,10 @@ gen9wa_vme_hevc_walker_fill_vme_batchbuffer(VADriverContextP ctx,
     int log2_cu_size = pSequenceParameter->log2_min_luma_coding_block_size_minus3 + 3;
     int log2_ctb_size = pSequenceParameter->log2_diff_max_min_luma_coding_block_size + log2_cu_size;
     int ctb_size = 1 << log2_ctb_size;
-    int num_mb_in_ctb = (ctb_size + 15)/16;
+    int num_mb_in_ctb = (ctb_size + 15) / 16;
     num_mb_in_ctb = num_mb_in_ctb * num_mb_in_ctb;
 
-#define		USE_SCOREBOARD		(1 << 21)
+#define     USE_SCOREBOARD      (1 << 21)
 
     dri_bo_map(vme_context->vme_batchbuffer.bo, 1);
     command_ptr = vme_context->vme_batchbuffer.bo->virtual;
@@ -1496,7 +1495,7 @@ gen9wa_vme_hevc_walker_fill_vme_batchbuffer(VADriverContextP ctx,
         y_outer = first_mb / mb_width;
         mb_row = y_outer;
 
-        for (; x_outer < (mb_width -2 ) && !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height); ) {
+        for (; x_outer < (mb_width - 2) && !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height);) {
             x_inner = x_outer;
             y_inner = y_outer;
             for (; !loop_in_bounds(x_inner, y_inner, first_mb, num_mb, mb_width, mb_height);) {
@@ -1511,7 +1510,7 @@ gen9wa_vme_hevc_walker_fill_vme_batchbuffer(VADriverContextP ctx,
                     score_dep |= MB_SCOREBOARD_B;
                     if (x_inner != 0)
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
-                    if (x_inner != (mb_width -1)) {
+                    if (x_inner != (mb_width - 1)) {
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
                         score_dep |= MB_SCOREBOARD_C;
                     }
@@ -1542,7 +1541,7 @@ gen9wa_vme_hevc_walker_fill_vme_batchbuffer(VADriverContextP ctx,
             xtemp_outer = 0;
         x_outer = xtemp_outer;
         y_outer = first_mb / mb_width;
-        for (;!loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height); ) {
+        for (; !loop_in_bounds(x_outer, y_outer, first_mb, num_mb, mb_width, mb_height);) {
             y_inner = y_outer;
             x_inner = x_outer;
             for (; !loop_in_bounds(x_inner, y_inner, first_mb, num_mb, mb_width, mb_height);) {
@@ -1558,7 +1557,7 @@ gen9wa_vme_hevc_walker_fill_vme_batchbuffer(VADriverContextP ctx,
                     if (x_inner != 0)
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
 
-                    if (x_inner != (mb_width -1)) {
+                    if (x_inner != (mb_width - 1)) {
                         mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
                         score_dep |= MB_SCOREBOARD_C;
                     }
@@ -1597,11 +1596,11 @@ gen9wa_vme_hevc_walker_fill_vme_batchbuffer(VADriverContextP ctx,
 
 static void
 gen9_vme_hevc_fill_vme_batchbuffer(VADriverContextP ctx,
-                              struct encode_state *encode_state,
-                              int mb_width, int mb_height,
-                              int kernel,
-                              int transform_8x8_mode_flag,
-                              struct intel_encoder_context *encoder_context)
+                                   struct encode_state *encode_state,
+                                   int mb_width, int mb_height,
+                                   int kernel,
+                                   int transform_8x8_mode_flag,
+                                   struct intel_encoder_context *encoder_context)
 {
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
     int mb_x = 0, mb_y = 0;
@@ -1612,7 +1611,7 @@ gen9_vme_hevc_fill_vme_batchbuffer(VADriverContextP ctx,
     int log2_ctb_size = pSequenceParameter->log2_diff_max_min_luma_coding_block_size + log2_cu_size;
 
     int ctb_size = 1 << log2_ctb_size;
-    int num_mb_in_ctb = (ctb_size + 15)/16;
+    int num_mb_in_ctb = (ctb_size + 15) / 16;
     num_mb_in_ctb = num_mb_in_ctb * num_mb_in_ctb;
 
     dri_bo_map(vme_context->vme_batchbuffer.bo, 1);
@@ -1625,7 +1624,7 @@ gen9_vme_hevc_fill_vme_batchbuffer(VADriverContextP ctx,
 
         unsigned int mb_intra_ub;
         int slice_mb_x = slice_mb_begin % mb_width;
-        for (i = 0; i < slice_mb_number;  ) {
+        for (i = 0; i < slice_mb_number;) {
             int mb_count = i + slice_mb_begin;
             mb_x = mb_count % mb_width;
             mb_y = mb_count / mb_width;
@@ -1638,7 +1637,7 @@ gen9_vme_hevc_fill_vme_batchbuffer(VADriverContextP ctx,
                 mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_B;
                 if (mb_x != 0)
                     mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_D;
-                if (mb_x != (mb_width -1))
+                if (mb_x != (mb_width - 1))
                     mb_intra_ub |= INTRA_PRED_AVAIL_FLAG_C;
             }
             if (i < mb_width) {
@@ -1663,7 +1662,7 @@ gen9_vme_hevc_fill_vme_batchbuffer(VADriverContextP ctx,
 
             /*inline data */
             *command_ptr++ = (mb_width << 16 | mb_y << 8 | mb_x);
-            *command_ptr++ = ( (1 << 16) | transform_8x8_mode_flag | (mb_intra_ub << 8));
+            *command_ptr++ = ((1 << 16) | transform_8x8_mode_flag | (mb_intra_ub << 8));
 
             *command_ptr++ = CMD_MEDIA_STATE_FLUSH;
             *command_ptr++ = 0;
@@ -1678,15 +1677,15 @@ gen9_vme_hevc_fill_vme_batchbuffer(VADriverContextP ctx,
 }
 
 static void gen9_vme_hevc_pipeline_programing(VADriverContextP ctx,
-                                         struct encode_state *encode_state,
-                                         struct intel_encoder_context *encoder_context)
+                                              struct encode_state *encode_state,
+                                              struct intel_encoder_context *encoder_context)
 {
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
     struct intel_batchbuffer *batch = encoder_context->base.batch;
     VAEncSliceParameterBufferHEVC *pSliceParameter = (VAEncSliceParameterBufferHEVC *)encode_state->slice_params_ext[0]->buffer;
     VAEncSequenceParameterBufferHEVC *pSequenceParameter = (VAEncSequenceParameterBufferHEVC *)encode_state->seq_param_ext->buffer;
-    int width_in_mbs = (pSequenceParameter->pic_width_in_luma_samples + 15)/16;
-    int height_in_mbs = (pSequenceParameter->pic_height_in_luma_samples + 15)/16;
+    int width_in_mbs = (pSequenceParameter->pic_width_in_luma_samples + 15) / 16;
+    int height_in_mbs = (pSequenceParameter->pic_height_in_luma_samples + 15) / 16;
     int kernel_shader;
     bool allow_hwscore = true;
     int s;
@@ -1695,7 +1694,7 @@ static void gen9_vme_hevc_pipeline_programing(VADriverContextP ctx,
     int log2_ctb_size = pSequenceParameter->log2_diff_max_min_luma_coding_block_size + log2_cu_size;
 
     int ctb_size = 1 << log2_ctb_size;
-    int num_mb_in_ctb = (ctb_size + 15)/16;
+    int num_mb_in_ctb = (ctb_size + 15) / 16;
     int transform_8x8_mode_flag = 1;
     num_mb_in_ctb = num_mb_in_ctb * num_mb_in_ctb;
 
@@ -1719,28 +1718,27 @@ static void gen9_vme_hevc_pipeline_programing(VADriverContextP ctx,
     }
     if (allow_hwscore)
         gen9wa_vme_hevc_walker_fill_vme_batchbuffer(ctx,
-                                               encode_state,
-                                               width_in_mbs, height_in_mbs,
-                                               kernel_shader,
-                                               transform_8x8_mode_flag,
-                                               encoder_context);
+                                                    encode_state,
+                                                    width_in_mbs, height_in_mbs,
+                                                    kernel_shader,
+                                                    transform_8x8_mode_flag,
+                                                    encoder_context);
     else
         gen9_vme_hevc_fill_vme_batchbuffer(ctx,
-                                      encode_state,
-                                      width_in_mbs, height_in_mbs,
-                                      kernel_shader,
-                                      transform_8x8_mode_flag,
-                                      encoder_context);
+                                           encode_state,
+                                           width_in_mbs, height_in_mbs,
+                                           kernel_shader,
+                                           transform_8x8_mode_flag,
+                                           encoder_context);
 
     intel_batchbuffer_start_atomic(batch, 0x1000);
     gen9_gpe_pipeline_setup(ctx, &vme_context->gpe_context, batch);
     BEGIN_BATCH(batch, 3);
     OUT_BATCH(batch, MI_BATCH_BUFFER_START | (1 << 8) | (1 << 0));
-    OUT_RELOC(batch,
-              vme_context->vme_batchbuffer.bo,
-              I915_GEM_DOMAIN_COMMAND, 0,
-              0);
-    OUT_BATCH(batch, 0);
+    OUT_RELOC64(batch,
+                vme_context->vme_batchbuffer.bo,
+                I915_GEM_DOMAIN_COMMAND, 0,
+                0);
     ADVANCE_BATCH(batch);
 
     gen9_gpe_pipeline_end(ctx, &vme_context->gpe_context, batch);
@@ -1749,9 +1747,11 @@ static void gen9_vme_hevc_pipeline_programing(VADriverContextP ctx,
 }
 
 static VAStatus gen9_intel_init_hevc_surface(VADriverContextP ctx,
-                            struct intel_encoder_context *encoder_context,
-                            struct encode_state *encode_state,
-                            struct object_surface *input_obj_surface)
+                                             struct intel_encoder_context *encoder_context,
+                                             struct encode_state *encode_state,
+                                             struct object_surface *input_obj_surface,
+                                             struct object_surface *output_obj_surface,
+                                             int set_flag)
 {
     struct i965_driver_data *i965 = i965_driver_data(ctx);
     struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
@@ -1764,17 +1764,17 @@ static VAStatus gen9_intel_init_hevc_surface(VADriverContextP ctx,
 
     uint32_t size;
 
-    obj_surface = input_obj_surface;
+    obj_surface = output_obj_surface;
     assert(obj_surface && obj_surface->bo);
 
     if (obj_surface->private_data == NULL) {
 
         if (mfc_context->pic_size.ctb_size == 16)
             size = ((pSequenceParameter->pic_width_in_luma_samples + 63) >> 6) *
-            ((pSequenceParameter->pic_height_in_luma_samples + 15) >> 4);
+                   ((pSequenceParameter->pic_height_in_luma_samples + 15) >> 4);
         else
             size = ((pSequenceParameter->pic_width_in_luma_samples + 31) >> 5) *
-            ((pSequenceParameter->pic_height_in_luma_samples + 31) >> 5);
+                   ((pSequenceParameter->pic_height_in_luma_samples + 31) >> 5);
         size <<= 6; /* in unit of 64bytes */
 
         hevc_encoder_surface = calloc(sizeof(GenHevcSurface), 1);
@@ -1782,9 +1782,9 @@ static VAStatus gen9_intel_init_hevc_surface(VADriverContextP ctx,
         assert(hevc_encoder_surface);
         hevc_encoder_surface->motion_vector_temporal_bo =
             dri_bo_alloc(i965->intel.bufmgr,
-            "motion vector temporal buffer",
-            size,
-            0x1000);
+                         "motion vector temporal buffer",
+                         size,
+                         0x1000);
         assert(hevc_encoder_surface->motion_vector_temporal_bo);
 
         hevc_encoder_surface->ctx = ctx;
@@ -1798,26 +1798,24 @@ static VAStatus gen9_intel_init_hevc_surface(VADriverContextP ctx,
 
     hevc_encoder_surface = (GenHevcSurface *) obj_surface->private_data;
 
-    if(!hevc_encoder_surface->has_p010_to_nv12_done && obj_surface->fourcc == VA_FOURCC_P010)
-    {
+    if (!hevc_encoder_surface->has_p010_to_nv12_done && obj_surface->fourcc == VA_FOURCC_P010) {
         // convert input
         rect.x = 0;
         rect.y = 0;
         rect.width = obj_surface->orig_width;
         rect.height = obj_surface->orig_height;
 
-        src_surface.base = (struct object_base *)obj_surface;
+        src_surface.base = (struct object_base *)input_obj_surface;
         src_surface.type = I965_SURFACE_TYPE_SURFACE;
         src_surface.flags = I965_SURFACE_FLAG_FRAME;
 
-        if(SURFACE(hevc_encoder_surface->nv12_surface_id) == NULL)
-        {
+        if (SURFACE(hevc_encoder_surface->nv12_surface_id) == NULL) {
             status = i965_CreateSurfaces(ctx,
-                obj_surface->orig_width,
-                obj_surface->orig_height,
-                VA_RT_FORMAT_YUV420,
-                1,
-                &hevc_encoder_surface->nv12_surface_id);
+                                         obj_surface->orig_width,
+                                         obj_surface->orig_height,
+                                         VA_RT_FORMAT_YUV420,
+                                         1,
+                                         &hevc_encoder_surface->nv12_surface_id);
             assert(status == VA_STATUS_SUCCESS);
 
             if (status != VA_STATUS_SUCCESS)
@@ -1834,19 +1832,22 @@ static VAStatus gen9_intel_init_hevc_surface(VADriverContextP ctx,
         dst_surface.flags = I965_SURFACE_FLAG_FRAME;
 
         status = i965_image_processing(ctx,
-            &src_surface,
-            &rect,
-            &dst_surface,
-            &rect);
+                                       &src_surface,
+                                       &rect,
+                                       &dst_surface,
+                                       &rect);
         assert(status == VA_STATUS_SUCCESS);
-        hevc_encoder_surface->has_p010_to_nv12_done = 1;
+
+        if (set_flag)
+            hevc_encoder_surface->has_p010_to_nv12_done = 1;
     }
+
     return VA_STATUS_SUCCESS;
 }
 
 static VAStatus gen9_intel_hevc_input_check(VADriverContextP ctx,
-                            struct encode_state *encode_state,
-                            struct intel_encoder_context *encoder_context)
+                                            struct encode_state *encode_state,
+                                            struct intel_encoder_context *encoder_context)
 {
     struct i965_driver_data *i965 = i965_driver_data(ctx);
     struct gen9_hcpe_context *mfc_context = encoder_context->mfc_context;
@@ -1855,25 +1856,22 @@ static VAStatus gen9_intel_hevc_input_check(VADriverContextP ctx,
     int i;
     int fourcc;
 
-    obj_surface = SURFACE(encode_state->current_render_target);
+    obj_surface = SURFACE(encoder_context->input_yuv_surface);
     assert(obj_surface && obj_surface->bo);
-    hevc_encoder_surface = (GenHevcSurface *) obj_surface->private_data;
-    if(hevc_encoder_surface)
-        hevc_encoder_surface->has_p010_to_nv12_done = 0;
-    gen9_intel_init_hevc_surface(ctx,encoder_context,encode_state,obj_surface);
 
     fourcc = obj_surface->fourcc;
     /* Setup current frame and current direct mv buffer*/
     obj_surface = encode_state->reconstructed_object;
-    if(fourcc == VA_FOURCC_P010)
+    if (fourcc == VA_FOURCC_P010)
         i965_check_alloc_surface_bo(ctx, obj_surface, 1, VA_FOURCC_P010, SUBSAMPLE_YUV420);
     else
         i965_check_alloc_surface_bo(ctx, obj_surface, 1, VA_FOURCC_NV12, SUBSAMPLE_YUV420);
     hevc_encoder_surface = NULL;
     hevc_encoder_surface = (GenHevcSurface *) obj_surface->private_data;
-    if(hevc_encoder_surface)
-        hevc_encoder_surface->has_p010_to_nv12_done = 1;
-    gen9_intel_init_hevc_surface(ctx,encoder_context,encode_state,obj_surface);
+    if (hevc_encoder_surface)
+        hevc_encoder_surface->has_p010_to_nv12_done = 0;
+    gen9_intel_init_hevc_surface(ctx, encoder_context, encode_state, encode_state->input_yuv_object,
+                                 obj_surface, 0);
 
     /* Setup reference frames and direct mv buffers*/
     for (i = 0; i < MAX_HCP_REFERENCE_SURFACES; i++) {
@@ -1883,7 +1881,8 @@ static VAStatus gen9_intel_hevc_input_check(VADriverContextP ctx,
             mfc_context->reference_surfaces[i].bo = obj_surface->bo;
             dri_bo_reference(obj_surface->bo);
 
-            gen9_intel_init_hevc_surface(ctx,encoder_context,encode_state,obj_surface);
+            gen9_intel_init_hevc_surface(ctx, encoder_context, encode_state, obj_surface,
+                                         obj_surface, 1);
         } else {
             break;
         }
@@ -1893,8 +1892,8 @@ static VAStatus gen9_intel_hevc_input_check(VADriverContextP ctx,
 }
 
 static VAStatus gen9_vme_hevc_prepare(VADriverContextP ctx,
-                                 struct encode_state *encode_state,
-                                 struct intel_encoder_context *encoder_context)
+                                      struct encode_state *encode_state,
+                                      struct intel_encoder_context *encoder_context)
 {
     VAStatus vaStatus = VA_STATUS_SUCCESS;
     VAEncSliceParameterBufferHEVC *pSliceParameter = (VAEncSliceParameterBufferHEVC *)encode_state->slice_params_ext[0]->buffer;
@@ -1909,7 +1908,7 @@ static VAStatus gen9_vme_hevc_prepare(VADriverContextP ctx,
     }
 
     //internal input check for main10
-    gen9_intel_hevc_input_check(ctx,encode_state,encoder_context);
+    gen9_intel_hevc_input_check(ctx, encode_state, encoder_context);
 
     intel_vme_hevc_update_mbmv_cost(ctx, encode_state, encoder_context);
 
@@ -1928,9 +1927,9 @@ static VAStatus gen9_vme_hevc_prepare(VADriverContextP ctx,
 
 static VAStatus
 gen9_vme_hevc_pipeline(VADriverContextP ctx,
-                  VAProfile profile,
-                  struct encode_state *encode_state,
-                  struct intel_encoder_context *encoder_context)
+                       VAProfile profile,
+                       struct encode_state *encode_state,
+                       struct intel_encoder_context *encoder_context)
 {
     gen9_vme_media_init(ctx, encoder_context);
     gen9_vme_hevc_prepare(ctx, encode_state, encoder_context);
@@ -1975,8 +1974,11 @@ gen9_vme_context_destroy(void *context)
     free(vme_context);
 }
 
+extern Bool i965_encoder_vp8_vme_context_init(VADriverContextP ctx, struct intel_encoder_context *encoder_context);
+
 Bool gen9_vme_context_init(VADriverContextP ctx, struct intel_encoder_context *encoder_context)
 {
+    struct i965_driver_data *i965 = i965_driver_data(ctx);
     struct gen6_vme_context *vme_context;
     struct i965_kernel *vme_kernel_list = NULL;
     int i965_kernel_num;
@@ -1989,7 +1991,13 @@ Bool gen9_vme_context_init(VADriverContextP ctx, struct intel_encoder_context *e
         return True;
     } else if (encoder_context->codec == CODEC_VP9) {
         return gen9_vp9_vme_context_init(ctx, encoder_context);
-    }
+    } else if (encoder_context->codec == CODEC_VP8) {
+        return i965_encoder_vp8_vme_context_init(ctx, encoder_context);
+    } else if (encoder_context->codec == CODEC_H264 ||
+               encoder_context->codec == CODEC_H264_MVC) {
+        return gen9_avc_vme_context_init(ctx, encoder_context);
+    } else if (encoder_context->codec == CODEC_HEVC)
+        return gen9_hevc_vme_context_init(ctx, encoder_context);
 
     vme_context = calloc(1, sizeof(struct gen6_vme_context));
 
@@ -2030,12 +2038,18 @@ Bool gen9_vme_context_init(VADriverContextP ctx, struct intel_encoder_context *e
     vme_context->vme_kernel_sum = i965_kernel_num;
     vme_context->gpe_context.surface_state_binding_table.length = (SURFACE_STATE_PADDED_SIZE + sizeof(unsigned int)) * MAX_MEDIA_SURFACES_GEN6;
 
-    vme_context->gpe_context.idrt_size = sizeof(struct gen8_interface_descriptor_data) * MAX_INTERFACE_DESC_GEN6;
-    vme_context->gpe_context.curbe_size = CURBE_TOTAL_DATA_LENGTH;
-    vme_context->gpe_context.sampler_size = 0;
+    vme_context->gpe_context.idrt.entry_size = ALIGN(sizeof(struct gen8_interface_descriptor_data), 64);
+    vme_context->gpe_context.idrt.max_entries = MAX_INTERFACE_DESC_GEN6;
+    vme_context->gpe_context.curbe.length = CURBE_TOTAL_DATA_LENGTH;
+    vme_context->gpe_context.sampler.entry_size = 0;
+    vme_context->gpe_context.sampler.max_entries = 0;
 
+    if (i965->intel.eu_total > 0) {
+        vme_context->gpe_context.vfe_state.max_num_threads = 6 *
+                                                             i965->intel.eu_total;
+    } else
+        vme_context->gpe_context.vfe_state.max_num_threads = 60 - 1;
 
-    vme_context->gpe_context.vfe_state.max_num_threads = 60 - 1;
     vme_context->gpe_context.vfe_state.num_urb_entries = 64;
     vme_context->gpe_context.vfe_state.gpgpu_mode = 0;
     vme_context->gpe_context.vfe_state.urb_entry_size = 16;

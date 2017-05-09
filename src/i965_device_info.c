@@ -199,7 +199,7 @@ static struct hw_codec_info hsw_hw_codec_info = {
     .min_linear_hpitch = 16,
 
     .h264_mvc_dec_profiles = (VA_PROFILE_MASK(H264StereoHigh) |
-                              VA_PROFILE_MASK(H264MultiviewHigh)),
+    VA_PROFILE_MASK(H264MultiviewHigh)),
     .h264_dec_chroma_formats = EXTRA_H264_DEC_CHROMA_FORMATS,
     .jpeg_dec_chroma_formats = EXTRA_JPEG_DEC_CHROMA_FORMATS,
 
@@ -243,7 +243,7 @@ static struct hw_codec_info bdw_hw_codec_info = {
     .min_linear_hpitch = 16,
 
     .h264_mvc_dec_profiles = (VA_PROFILE_MASK(H264StereoHigh) |
-                              VA_PROFILE_MASK(H264MultiviewHigh)),
+    VA_PROFILE_MASK(H264MultiviewHigh)),
     .h264_dec_chroma_formats = EXTRA_H264_DEC_CHROMA_FORMATS,
     .jpeg_dec_chroma_formats = EXTRA_JPEG_DEC_CHROMA_FORMATS,
 
@@ -286,7 +286,7 @@ static struct hw_codec_info chv_hw_codec_info = {
     .min_linear_hpitch = 16,
 
     .h264_mvc_dec_profiles = (VA_PROFILE_MASK(H264StereoHigh) |
-                              VA_PROFILE_MASK(H264MultiviewHigh)),
+    VA_PROFILE_MASK(H264MultiviewHigh)),
     .h264_dec_chroma_formats = EXTRA_H264_DEC_CHROMA_FORMATS,
     .jpeg_dec_chroma_formats = EXTRA_JPEG_DEC_CHROMA_FORMATS,
     .jpeg_enc_chroma_formats = EXTRA_JPEG_ENC_CHROMA_FORMATS,
@@ -339,7 +339,7 @@ static struct hw_codec_info skl_hw_codec_info = {
     .min_linear_hpitch = 16,
 
     .h264_mvc_dec_profiles = (VA_PROFILE_MASK(H264StereoHigh) |
-                              VA_PROFILE_MASK(H264MultiviewHigh)),
+    VA_PROFILE_MASK(H264MultiviewHigh)),
     .h264_dec_chroma_formats = EXTRA_H264_DEC_CHROMA_FORMATS,
     .jpeg_dec_chroma_formats = EXTRA_JPEG_DEC_CHROMA_FORMATS,
     .jpeg_enc_chroma_formats = EXTRA_JPEG_ENC_CHROMA_FORMATS,
@@ -384,6 +384,7 @@ static struct hw_codec_info bxt_hw_codec_info = {
     .render_init = gen9_render_init,
     .post_processing_context_init = gen9_post_processing_context_init,
     .max_resolution = gen9_max_resolution,
+    .preinit_hw_codec = gen9_hw_codec_preinit,
 
     .max_width = 4096,  /* default. See max_resolution */
     .max_height = 4096, /* default. See max_resolution */
@@ -391,7 +392,7 @@ static struct hw_codec_info bxt_hw_codec_info = {
     .min_linear_hpitch = 16,
 
     .h264_mvc_dec_profiles = (VA_PROFILE_MASK(H264StereoHigh) |
-                              VA_PROFILE_MASK(H264MultiviewHigh)),
+    VA_PROFILE_MASK(H264MultiviewHigh)),
     .vp9_dec_profiles = VP9_PROFILE_MASK(0),
 
     .h264_dec_chroma_formats = EXTRA_H264_DEC_CHROMA_FORMATS,
@@ -419,6 +420,9 @@ static struct hw_codec_info bxt_hw_codec_info = {
     .has_hevc10_decoding = 1,
     .has_vp9_decoding = 1,
     .has_vpp_p010 = 1,
+    .has_lp_h264_encoding = 1,
+
+    .lp_h264_brc_mode = VA_RC_CQP,
 
     .num_filters = 5,
     .filters = {
@@ -437,6 +441,7 @@ static struct hw_codec_info kbl_hw_codec_info = {
     .render_init = gen9_render_init,
     .post_processing_context_init = gen9_post_processing_context_init,
     .max_resolution = gen9_max_resolution,
+    .preinit_hw_codec = gen9_hw_codec_preinit,
 
     .max_width = 4096,   /* default. See max_resolution */
     .max_height = 4096,  /* default. See max_resolution */
@@ -444,9 +449,10 @@ static struct hw_codec_info kbl_hw_codec_info = {
     .min_linear_hpitch = 16,
 
     .h264_mvc_dec_profiles = (VA_PROFILE_MASK(H264StereoHigh) |
-                              VA_PROFILE_MASK(H264MultiviewHigh)),
+    VA_PROFILE_MASK(H264MultiviewHigh)),
     .vp9_dec_profiles = VP9_PROFILE_MASK(0) |
-                        VP9_PROFILE_MASK(2),
+    VP9_PROFILE_MASK(2),
+    .vp9_enc_profiles = VP9_PROFILE_MASK(0),
 
     .h264_dec_chroma_formats = EXTRA_H264_DEC_CHROMA_FORMATS,
     .jpeg_dec_chroma_formats = EXTRA_JPEG_DEC_CHROMA_FORMATS,
@@ -477,6 +483,73 @@ static struct hw_codec_info kbl_hw_codec_info = {
     .has_vp9_decoding = 1,
     .has_vpp_p010 = 1,
     .has_vp9_encoding = 1,
+    .has_lp_h264_encoding = 1,
+
+    .lp_h264_brc_mode = VA_RC_CQP,
+
+    .num_filters = 5,
+    .filters = {
+        { VAProcFilterNoiseReduction, I965_RING_VEBOX },
+        { VAProcFilterDeinterlacing, I965_RING_VEBOX },
+        { VAProcFilterSharpening, I965_RING_NULL },
+        { VAProcFilterColorBalance, I965_RING_VEBOX},
+        { VAProcFilterSkinToneEnhancement, I965_RING_VEBOX},
+    },
+};
+
+static struct hw_codec_info glk_hw_codec_info = {
+    .dec_hw_context_init = gen9_dec_hw_context_init,
+    .enc_hw_context_init = gen9_enc_hw_context_init,
+    .proc_hw_context_init = gen75_proc_context_init,
+    .render_init = gen9_render_init,
+    .post_processing_context_init = gen9_post_processing_context_init,
+
+    .max_resolution = gen9_max_resolution,
+    .preinit_hw_codec = gen9_hw_codec_preinit,
+
+    .max_width = 4096,
+    .max_height = 4096,
+    .min_linear_wpitch = 64,
+    .min_linear_hpitch = 16,
+
+    .h264_mvc_dec_profiles = (VA_PROFILE_MASK(H264StereoHigh) |
+    VA_PROFILE_MASK(H264MultiviewHigh)),
+    .vp9_dec_profiles = VP9_PROFILE_MASK(0) |
+    VP9_PROFILE_MASK(2),
+
+    .vp9_enc_profiles = VP9_PROFILE_MASK(0),
+
+    .h264_dec_chroma_formats = EXTRA_H264_DEC_CHROMA_FORMATS,
+    .jpeg_dec_chroma_formats = EXTRA_JPEG_DEC_CHROMA_FORMATS,
+    .jpeg_enc_chroma_formats = EXTRA_JPEG_ENC_CHROMA_FORMATS,
+    .hevc_dec_chroma_formats = EXTRA_HEVC_DEC_CHROMA_FORMATS,
+    .vp9_dec_chroma_formats = EXTRA_VP9_DEC_CHROMA_FORMATS,
+
+    .has_mpeg2_decoding = 1,
+    .has_h264_decoding = 1,
+    .has_h264_encoding = 1,
+    .has_vc1_decoding = 1,
+    .has_jpeg_decoding = 1,
+    .has_jpeg_encoding = 1,
+    .has_vpp = 1,
+    .has_accelerated_getimage = 1,
+    .has_accelerated_putimage = 1,
+    .has_tiled_surface = 1,
+    .has_di_motion_adptive = 1,
+    .has_di_motion_compensated = 1,
+    .has_vp8_decoding = 1,
+    .has_vp8_encoding = 1,
+    .has_h264_mvc_encoding = 1,
+    .has_hevc_decoding = 1,
+    .has_hevc_encoding = 1,
+    .has_hevc10_decoding = 1,
+    .has_hevc10_encoding = 1,
+    .has_vp9_decoding = 1,
+    .has_vpp_p010 = 1,
+    .has_vp9_encoding = 1,
+    .has_lp_h264_encoding = 1,
+
+    .lp_h264_brc_mode = VA_RC_CQP,
 
     .num_filters = 5,
     .filters = {
@@ -635,6 +708,15 @@ static const struct intel_device_info kbl_device_info = {
     .is_kabylake = 1,
 };
 
+static const struct intel_device_info glk_device_info = {
+    .gen = 9,
+
+    .urb_size = 4096,
+    .max_wm_threads = 64,       /* per PSD */
+
+    .is_glklake = 1,
+};
+
 const struct intel_device_info *
 i965_get_device_info(int devid)
 {
@@ -648,8 +730,8 @@ i965_get_device_info(int devid)
 }
 
 static void cpuid(unsigned int op,
-                         uint32_t *eax, uint32_t *ebx,
-                         uint32_t *ecx, uint32_t *edx)
+                  uint32_t *eax, uint32_t *ebx,
+                  uint32_t *ecx, uint32_t *edx)
 {
     __cpuid_count(op, 0, *eax, *ebx, *ecx, *edx);
 }
@@ -688,12 +770,12 @@ static int intel_driver_detect_cpustring(char *model_id)
  * It is captured by /proc/cpuinfo and the space character is stripped.
  */
 const static char *hsw_cpu_hook_list[] =  {
-"Intel(R)Pentium(R)3556U",
-"Intel(R)Pentium(R)3560Y",
-"Intel(R)Pentium(R)3550M",
-"Intel(R)Celeron(R)2980U",
-"Intel(R)Celeron(R)2955U",
-"Intel(R)Celeron(R)2950M",
+    "Intel(R)Pentium(R)3556U",
+    "Intel(R)Pentium(R)3560Y",
+    "Intel(R)Pentium(R)3550M",
+    "Intel(R)Celeron(R)2980U",
+    "Intel(R)Celeron(R)2955U",
+    "Intel(R)Celeron(R)2950M",
 };
 
 static void hsw_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *codec_info)
@@ -712,7 +794,7 @@ static void hsw_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *cod
     /* strip the cpufreq info */
     model_ptr = model_string;
     tmp_ptr = strstr(model_ptr, "@");
-   
+
     if (tmp_ptr)
         *tmp_ptr = '\0';
 
@@ -720,10 +802,10 @@ static void hsw_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *cod
     model_ptr = model_string;
     model_len = strlen(model_string);
     for (i = 0; i < model_len; i++) {
-         if (model_string[i] != ' ') {
-             *model_ptr = model_string[i];
-             model_ptr++;
-         }
+        if (model_string[i] != ' ') {
+            *model_ptr = model_string[i];
+            model_ptr++;
+        }
     }
     *model_ptr = '\0';
 
@@ -755,8 +837,8 @@ static void hsw_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *cod
  * It is captured by /proc/cpuinfo and the space character is stripped.
  */
 const static char *gen6_cpu_hook_list[] =  {
-"Intel(R)Celeron(R)CPU847",
-"Intel(R)Celeron(R)CPU867",
+    "Intel(R)Celeron(R)CPU847",
+    "Intel(R)Celeron(R)CPU867",
 };
 
 static void gen6_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *codec_info)
@@ -783,10 +865,10 @@ static void gen6_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *co
     model_ptr = model_string;
     model_len = strlen(model_string);
     for (i = 0; i < model_len; i++) {
-         if (model_string[i] != ' ') {
-             *model_ptr = model_string[i];
-             model_ptr++;
-         }
+        if (model_string[i] != ' ') {
+            *model_ptr = model_string[i];
+            model_ptr++;
+        }
     }
     *model_ptr = '\0';
 
@@ -816,8 +898,9 @@ static void gen6_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *co
  * It is captured by /proc/cpuinfo and the space character is stripped.
  */
 const static char *gen7_cpu_hook_list[] =  {
-"Intel(R)Celeron(R)CPU1007U",
-"Intel(R)Pentium(R)CPUG2130",
+    "Intel(R)Celeron(R)CPU1007U",
+    "Intel(R)Celeron(R)CPU1037U",
+    "Intel(R)Pentium(R)CPUG2130",
 };
 
 static void gen7_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *codec_info)
@@ -844,10 +927,10 @@ static void gen7_hw_codec_preinit(VADriverContextP ctx, struct hw_codec_info *co
     model_ptr = model_string;
     model_len = strlen(model_string);
     for (i = 0; i < model_len; i++) {
-         if (model_string[i] != ' ') {
-             *model_ptr = model_string[i];
-             model_ptr++;
-         }
+        if (model_string[i] != ' ') {
+            *model_ptr = model_string[i];
+            model_ptr++;
+        }
     }
     *model_ptr = '\0';
 
